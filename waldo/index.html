@@ -58,6 +58,7 @@ h3{font-size:13px;text-transform:uppercase;letter-spacing:.08em;color:var(--encr
 <div id="carte" aria-label="Carte"></div>
 <div id="haut"><div id="recherche"><span class="marque">Waldo</span><input id="q" type="search" enterkeyhint="search" placeholder="Adresse, lieu ou parcelle (BM 602)" aria-label="Rechercher"><button id="b-effacer" aria-label="Effacer" hidden>✕</button></div></div>
 <div id="fab">
+ <button class="fab" id="b-sig" aria-label="Outils SIG"><svg viewBox="0 0 24 24"><path d="M3 6l6-3 6 3 6-3v15l-6 3-6-3-6 3z"/><path d="M9 3v15M15 6v15"/></svg></button>
  <button class="fab" id="b-couches" aria-label="Fonds et couches"><svg viewBox="0 0 24 24"><path d="M12 3 2 8l10 5 10-5-10-5Z"/><path d="m2 13 10 5 10-5"/></svg></button>
  <button class="fab" id="b-adresses" aria-label="Mes adresses"><svg viewBox="0 0 24 24"><path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1L3.2 9.5l6.1-.9L12 3Z"/></svg></button>
  <button class="fab" id="b-position" aria-label="Ma position"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3"/></svg></button>
@@ -211,7 +212,7 @@ async function parcelleParNumero(sec,num){try{const r=await json(`https://apicar
  const c=b.getCenter();setTimeout(()=>fiche({lng:c.lng,lat:c.lat},f),900)}catch(e){toast("Le service du cadastre ne répond pas.")}}
 // ---------- fiche de parcelle : un toucher sur la carte
 let marque=null;
-carte.on("click",e=>{if(e.defaultPrevented)return;if(carte.getZoom()<14){carte.flyTo({center:e.lngLat,zoom:16});toast("Zoome encore un peu, puis touche une parcelle.");return}fiche(e.lngLat)});
+carte.on("click",e=>{if(e.defaultPrevented||window.WALDO_SIG_OCCUPE)return;if(carte.getZoom()<14){carte.flyTo({center:e.lngLat,zoom:16});toast("Zoome encore un peu, puis touche une parcelle.");return}fiche(e.lngLat)});
 async function fiche(ll,parcelle){if(window.marque)marque.remove();window.marque=marque=new maplibregl.Marker({color:OR}).setLngLat(ll).addTo(carte);
  tiroir("Recherche de la parcelle…","<p class='note'>Cadastre, PLU, altitude et risques…</p>");
  const geom=encodeURIComponent(JSON.stringify({type:"Point",coordinates:[ll.lng,ll.lat]}));let html="",titre="Ce point";
@@ -230,4 +231,6 @@ window.enregistrer=(lon,lat,nom)=>{const L=lire("adresses",{});const k=(nom||"li
  carte.getSource("adr")?.setData(adrGeo());carte.getSource("adr_txt")?.setData(adrGeo());etat.adresses=true;appliquer();toast("Enregistré dans Mes adresses (sur ce téléphone).")};
 carte.on("moveend",()=>{const c=carte.getCenter();ecrire("centre",[c.lng,c.lat]);ecrire("zoom",carte.getZoom())});
 addEventListener("offline",()=>toast("Plus de réseau : la carte déjà vue reste affichée, le reste attend le réseau.",4000));
-</script><script>if("serviceWorker" in navigator&&location.protocol==="https:"){navigator.serviceWorker.register("sw.js").catch(()=>{})}</script></body></html>
+</script><script src="waldo_sig.js"></script>
+<script>try{WaldoSIG.init({carte,mode:"telephone",base:"sig_libs/",bouton:$("b-sig")});WaldoSIG.surOuverture=()=>fermer()}catch(e){console.error(e)}</script>
+<script>if("serviceWorker" in navigator&&location.protocol==="https:"){navigator.serviceWorker.register("sw.js").catch(()=>{})}</script></body></html>
