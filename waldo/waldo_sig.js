@@ -114,11 +114,11 @@
     const r = $$("#sig-mesure");
     if (r) r.innerHTML = dessin.type === "distance" ? `<b>${m(longueur(p))}</b> · ${p.length} point${p.length > 1 ? "s" : ""}`
       : dessin.type === "surface" ? `<b>${m2(aire(p))}</b> · périmètre ${m(longueur(p.concat(p.length > 2 ? [p[0]] : [])))}`
-      : dessin.type === "tampon" ? "Touche une parcelle ou un tracé, ou un point de la carte" : "";
+      : dessin.type === "tampon" ? "Touche une parcelle ou un tracé, ou un point de la carte" : dessin.type === "topo" ? "Touche la parcelle à relever" : "";
   }
   function commencer(type) {
     dessin = {type, pts: []}; window.WALDO_SIG_OCCUPE = true; C.doubleClickZoom.disable(); C.getCanvas().style.cursor = "crosshair";
-    dire(type === "tampon" ? "Touche la carte : parcelle, tracé ou point." : "Touche la carte pour poser les points, puis « Terminer ».");
+    dire(type === "tampon" ? "Touche la carte : parcelle, tracé ou point." : type === "topo" ? "Touche la parcelle à relever." : "Touche la carte pour poser les points, puis « Terminer ».");
     dessinerPanneau(); encours();
   }
   function arreter() { dessin = {type: null, pts: []}; window.WALDO_SIG_OCCUPE = false; C.doubleClickZoom.enable(); C.getCanvas().style.cursor = ""; if (C.getSource("sig-encours")) C.getSource("sig-encours").setData(fc([])); dire(""); dessinerPanneau(); }
@@ -145,6 +145,28 @@
     b.properties = {nom: `Tampon ${fr(r)} m autour de ${quoi}`, couleur: CORAIL, etiquette: `${fr(r)} m`, rayon_m: r};
     if (cible.geometry.type !== "Point") traces.push(Object.assign(cible, {properties: {nom: quoi, couleur: OR}}));
     traces.push(b); majTraces(); dessinerPanneau(); dire(`Tampon de ${fr(r)} m autour de ${quoi} : ${m2(window.turf.area(b))}.`, 6000);
+  }
+
+  // ------------------------------------------------------------ relevé topo indicatif d'une parcelle (PC : QGIS + IGN)
+  async function topoEn(e) {
+    let ref = null;
+    try { dire("Je cherche la parcelle…");
+      const g = encodeURIComponent(JSON.stringify({type: "Point", coordinates: [e.lngLat.lng, e.lngLat.lat]}));
+      const f = ((await (await fetch(`https://apicarto.ign.fr/api/cadastre/parcelle?geom=${g}`)).json()).features || [])[0];
+      if (f) ref = `${f.properties.section} ${Number(f.properties.numero)}`;
+    } catch (x) {}
+    if (!ref) return dire("Pas de parcelle cadastrée ici.", 4000);
+    const pf = !!etat.pf; arreter();
+    dire(`Relevé topo de ${ref} en cours (1 à 2 min) : terrain IGN, courbes, points cotés, profils, ombres${pf ? ", plateforme + talus" : ""}…`);
+    try {
+      const j = await (await fetch("/api/sig/topo?" + new URLSearchParams({parcelle: ref, plateforme: pf ? "1" : "0"}))).json();
+      if (!j.ok) return dire("Relevé impossible : " + (j.erreur || "").slice(0, 200), 8000);
+      if (j.courbes) ajouterImport(`Courbes ${ref} (TN)`, j.courbes);
+      const s_ = j.stats || {}, p_ = j.plateforme;
+      dire(`${ref} : altitudes ${String(s_.z_min).replace(".", ",")} à ${String(s_.z_max).replace(".", ",")} m NGG, pente moyenne ${String(s_.pente_moy_pct).replace(".", ",")} %` +
+        (p_ ? ` ; plateforme ${String(p_.altitude).replace(".", ",")} m : remblai ${p_.remblai_m3} m³, déblai ${p_.deblai_m3} m³` : "") + ". Document indicatif, à faire vérifier par un géomètre-expert.");
+      onglet = "fichiers"; dessinerPanneau(); resultat(`Relevé topo de ${ref} prêt (plan A3, DXF, profils, ombres, base 3D)`, j.plan || j.dossier);
+    } catch (x) { dire("Le serveur de Waldo ne répond pas.", 5000); }
   }
 
   // ------------------------------------------------------------ rideau avant / après
@@ -353,8 +375,11 @@
     if (onglet === "mesures") {
       const actif = t => dessin.type === t ? "actif" : "";
       h += `<div class="sig-trois"><button data-dessin="distance" class="${actif("distance")}">📏 Distance</button><button data-dessin="surface" class="${actif("surface")}">⬠ Surface</button><button data-dessin="tampon" class="${actif("tampon")}">◎ Tampon</button></div>`;
+      if (mode === "pc") h += `<h4>Relevé topo indicatif</h4><div class="sig-ligne"><button data-dessin="topo" class="${actif("topo")}">⛰ Relevé topo d'une parcelle</button></div>
+        <label class="sig-curseur"><input type="checkbox" id="sig-pf" ${etat.pf ? "checked" : ""}> avec plateforme + talus (volumes de terrassement)</label>
+        <p class="sig-note">Touche la parcelle : plan A3 coté, DXF (UTM 22N) pour ArchiCAD, points cotés pour le géomètre, profils au 1/200, ombres portées, base 3D (SketchUp, ArchiCAD). Données IGN : document indicatif.</p>`;
       if (dessin.type === "tampon") h += `<label class="sig-curseur">Rayon du tampon <input type="number" id="sig-rayon" min="1" max="5000" step="1" value="${lire("rayon", 50)}"> m</label>`;
-      if (dessin.type) h += `<div id="sig-mesure" class="sig-mesure"></div><div class="sig-ligne">${dessin.type !== "tampon" ? `<button id="sig-fin" class="principal">Terminer</button><button id="sig-annul">Retirer le dernier point</button>` : ""}<button id="sig-stop">Arrêter</button></div>`;
+      if (dessin.type) h += `<div id="sig-mesure" class="sig-mesure"></div><div class="sig-ligne">${!["tampon", "topo"].includes(dessin.type) ? `<button id="sig-fin" class="principal">Terminer</button><button id="sig-annul">Retirer le dernier point</button>` : ""}<button id="sig-stop">Arrêter</button></div>`;
       h += traces.length ? `<h4>Mes tracés</h4><div class="sig-liste">${traces.map((t, i) => `<div class="sig-trace"><span>${esc(t.properties.nom)}<small>${esc(t.properties.etiquette || "")}</small></span><button data-suppr="${i}" aria-label="Supprimer">✕</button></div>`).join("")}</div><div class="sig-ligne"><button id="sig-vider">Tout effacer</button></div>` : `<p class="sig-note">Distances et surfaces calculées sur l'ellipsoïde terrestre. Le tampon dessine une zone à distance fixe autour d'une parcelle (touche-la) ou d'un tracé : utile pour un périmètre de 100 m, une marge de recul…</p>`;
     }
     if (onglet === "fichiers") {
@@ -384,6 +409,7 @@
     const fin = $$("#sig-fin"); if (fin) fin.onclick = terminer;
     const an = $$("#sig-annul"); if (an) an.onclick = () => { dessin.pts.pop(); encours(); };
     const st = $$("#sig-stop"); if (st) st.onclick = arreter;
+    const cpf = $$("#sig-pf"); if (cpf) cpf.onchange = () => { etat.pf = cpf.checked; ecrire("etat", etat); };
     const ry = $$("#sig-rayon"); if (ry) ry.onchange = () => ecrire("rayon", Number(ry.value));
     panneau.querySelectorAll("[data-suppr]").forEach(b => b.onclick = () => { traces.splice(+b.dataset.suppr, 1); majTraces(); dessinerPanneau(); });
     const vd = $$("#sig-vider"); if (vd) vd.onclick = () => { traces = []; majTraces(); dessinerPanneau(); };
@@ -474,6 +500,7 @@
     C.on("click", e => {
       if (!dessin.type) return;
       if (dessin.type === "tampon") { tamponEn(e); return; }
+      if (dessin.type === "topo") { topoEn(e); return; }
       dessin.pts.push([+e.lngLat.lng.toFixed(7), +e.lngLat.lat.toFixed(7)]); encours();
     });
     C.on("dblclick", e => { if (dessin.type && dessin.type !== "tampon") { e.preventDefault(); terminer(); } });
