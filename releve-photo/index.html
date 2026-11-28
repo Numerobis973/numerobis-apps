@@ -1,0 +1,694 @@
+<!doctype html><html lang="fr"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><link rel="manifest" href="manifest.webmanifest"><meta name="theme-color" content="#0f2a1d"><link rel="icon" href="icone-192.png"><link rel="apple-touch-icon" href="icone-192.png"></head><body><!--
+  RELEVÉ PHOTO de l'Agence Numérobis (étape 1, 28/11/2026, demande de Charly).
+  Tout se calcule sur le téléphone : aucune photo, aucun relevé n'est envoyé nulle part.
+  Lignes reconnues avec OpenCV.js (licence Apache 2.0, fichier opencv.js à côté de cette page).
+-->
+<title>Relevé photo</title>
+<meta name="theme-color" content="#0f2a1d">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Marcellus&family=Barlow:wght@400;500;600&family=Barlow+Semi+Condensed:wght@500;600&display=swap">
+<style>
+:root{
+  --jungle:#0f2a1d; --jungle-2:#163a29; --jungle-3:#1f4b36; --or:#e8b44c; --or-clair:#f6dc96; --or-fonce:#b8862d;
+  --papier:#f1f5ec; --doux:#b9c7bd; --alerte:#e8794c; --ok:#7fc79a;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--jungle);color:var(--papier);font:15px/1.4 Barlow,"Segoe UI",system-ui,sans-serif;overflow:hidden;-webkit-tap-highlight-color:transparent}
+button{font:inherit;color:inherit;border:0;cursor:pointer}
+#app{position:fixed;inset:0;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px)}
+header{display:flex;align-items:center;gap:10px;padding:8px max(12px,env(safe-area-inset-left,0px)) 8px max(12px,env(safe-area-inset-right,0px));background:var(--jungle);border-bottom:1px solid #2c5a44}
+header img{width:34px;height:34px;border-radius:7px}
+header h1{font:400 20px Marcellus,Georgia,serif;letter-spacing:1px;margin:0;color:var(--or);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.modes{display:flex;background:var(--jungle-2);border-radius:20px;padding:3px}
+.modes button{padding:6px 12px;border-radius:17px;background:none;font:600 13px "Barlow Semi Condensed",sans-serif;letter-spacing:.5px;color:var(--doux)}
+.modes button.actif{background:var(--or);color:var(--jungle)}
+.rond{width:38px;height:38px;border-radius:50%;background:var(--jungle-2);display:grid;place-items:center;font-size:20px;color:var(--or)}
+#scene{position:relative;flex:1;min-height:0;background:#0a1c13;overflow:hidden}
+canvas#vue{position:absolute;inset:0;width:100%;height:100%;touch-action:none}
+#accueil{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:18px;padding:24px;text-align:center}
+#accueil p{color:var(--doux);max-width:340px;margin:0}
+.gros{background:var(--or);color:var(--jungle);font:600 18px Barlow,sans-serif;padding:16px 26px;border-radius:40px;display:flex;align-items:center;gap:10px;box-shadow:0 6px 22px rgba(0,0,0,.35)}
+.gros svg{width:26px;height:26px}
+.second{background:var(--jungle-2);color:var(--or-clair);padding:11px 20px;border-radius:30px;font-weight:600}
+#outils{position:absolute;left:0;right:0;bottom:10px;display:flex;justify-content:center;gap:8px;flex-wrap:wrap;padding:0 10px;pointer-events:none}
+#outils button{pointer-events:auto;background:rgba(15,42,29,.92);border:1px solid #3a6b52;padding:9px 13px;border-radius:22px;font:600 13px "Barlow Semi Condensed",sans-serif;letter-spacing:.4px;color:var(--or-clair);display:flex;gap:6px;align-items:center}
+#outils button.actif{background:var(--or);color:var(--jungle);border-color:var(--or)}
+#outils button:disabled{opacity:.45}
+#fiche{position:absolute;left:10px;right:10px;bottom:62px;background:rgba(15,42,29,.97);border:1px solid var(--or-fonce);border-radius:16px;padding:12px 14px;display:flex;flex-direction:column;gap:9px;box-shadow:0 8px 26px rgba(0,0,0,.45)}
+#fiche .ligne1{display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+#fiche .mesure{font:400 22px Marcellus,Georgia,serif;color:var(--or)}
+#fiche .etiq{font:600 12px "Barlow Semi Condensed",sans-serif;letter-spacing:1.5px;color:var(--doux);text-transform:uppercase}
+#fiche .saisie{display:flex;gap:8px}
+#fiche input{flex:1;min-width:0;background:var(--jungle);border:1px solid #3a6b52;border-radius:10px;padding:11px 12px;color:var(--papier);font:500 18px Barlow,sans-serif}
+#fiche .boutons{display:flex;gap:8px;flex-wrap:wrap}
+.btn{background:var(--jungle-3);padding:9px 14px;border-radius:10px;font-weight:600}
+.btn.or{background:var(--or);color:var(--jungle)}
+.btn.rouge{background:#5a2a1c;color:#ffd9c8}
+footer{background:var(--jungle);border-top:1px solid #2c5a44;padding:8px max(10px,env(safe-area-inset-left,0px)) calc(8px + env(safe-area-inset-bottom,0px)) max(10px,env(safe-area-inset-right,0px));display:flex;flex-direction:column;gap:7px}
+#bulle{font-size:14px;color:var(--papier);background:var(--jungle-2);border-left:3px solid var(--or);border-radius:4px 12px 12px 4px;padding:7px 11px;min-height:20px}
+#bulle b{color:var(--or-clair);font-weight:600}
+.barre{display:flex;gap:8px}
+.barre input{flex:1;min-width:0;background:var(--jungle-2);border:1px solid #3a6b52;border-radius:22px;padding:11px 15px;color:var(--papier);font:16px Barlow,sans-serif}
+.barre input::placeholder{color:#7f9789}
+.barre button{width:46px;height:46px;border-radius:50%;background:var(--or);color:var(--jungle);display:grid;place-items:center}
+#panneau{position:absolute;inset:0;background:rgba(5,15,10,.6);display:flex;align-items:flex-end;z-index:5}
+#panneau .feuille{width:100%;max-height:80%;overflow:auto;background:var(--jungle);border-top:2px solid var(--or);border-radius:18px 18px 0 0;padding:16px max(16px,env(safe-area-inset-left,0px)) calc(18px + env(safe-area-inset-bottom,0px))}
+#panneau h2{font:400 20px Marcellus,Georgia,serif;color:var(--or);margin:0 0 10px}
+#panneau .item{display:flex;align-items:center;gap:10px;padding:10px;border-radius:12px;background:var(--jungle-2);margin-bottom:8px}
+#panneau .item img{width:52px;height:52px;object-fit:cover;border-radius:8px}
+#panneau .item div{flex:1;min-width:0}
+#panneau .item small{color:var(--doux)}
+#panneau .choix{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+#panneau .choix button{background:var(--jungle-2);padding:14px 10px;border-radius:12px;font-weight:600;color:var(--or-clair);text-align:left}
+#panneau .choix button small{display:block;font-weight:400;color:var(--doux);margin-top:2px}
+#panneau p{color:var(--doux)}
+#attente{position:absolute;inset:0;display:grid;place-items:center;background:rgba(10,28,19,.75);z-index:4;font:600 15px Barlow,sans-serif;color:var(--or-clair);text-align:center;padding:20px}
+.spin{width:38px;height:38px;border:4px solid #2c5a44;border-top-color:var(--or);border-radius:50%;animation:t 1s linear infinite;margin:0 auto 12px}
+@keyframes t{to{transform:rotate(1turn)}}
+[hidden]{display:none!important}
+</style>
+
+<div id="app">
+  <header>
+    <img id="logo" alt="" src="icone-192.png">
+    <h1 id="titre">Relevé</h1>
+    <div class="modes"><button id="mPhoto" class="actif">PHOTO</button><button id="mVideo">VIDÉO</button></div>
+    <button class="rond" id="bMenu" aria-label="Menu">≡</button>
+  </header>
+
+  <div id="scene">
+    <canvas id="vue"></canvas>
+    <div id="accueil">
+      <img src="icone-192.png" alt="" style="width:84px;height:84px;border-radius:18px">
+      <button class="gros" id="bPhoto"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 8h3l2-3h6l2 3h3v11H4z"/><circle cx="12" cy="13" r="4"/></svg>Prendre une photo</button>
+      <p>Photographie une façade ou un mur, bien en entier. Les lignes sont reconnues tout de suite : touche une ligne, donne sa cote réelle, et tout se met à l'échelle.</p>
+      <button class="second" id="bImport">🖼 Importer une photo ou une vidéo</button>
+      <button class="second" id="bMes">Mes relevés</button>
+    </div>
+    <div id="outils" hidden>
+      <button id="bRedresser">⟂ Redresser</button>
+      <button id="bFin" hidden>🎯 Fin</button>
+      <button id="bAimant" hidden>🧲 Aimant</button>
+      <button id="bQuitter" hidden>✕ Annuler</button>
+      <button id="bTracer">✎ Tracer</button>
+      <button id="bLignes">≡ Lignes</button>
+      <button id="bExport">⇩ Partager</button>
+    </div>
+    <div id="fiche" hidden>
+      <div class="ligne1"><span class="etiq" id="fEtiq">Ligne choisie</span><span class="mesure" id="fMesure">—</span></div>
+      <div class="saisie"><input id="fCote" inputmode="decimal" placeholder="Cote réelle (ex. 2,15 m ou 60 cm)" enterkeyhint="done"><button class="btn or" id="fOk">OK</button></div>
+      <div class="boutons"><button class="btn" id="fNote">+ Note</button><button class="btn rouge" id="fSuppr">Supprimer</button><button class="btn" id="fFermer">Fermer</button></div>
+    </div>
+    <div id="attente" hidden><div><div class="spin"></div><span id="attenteTxt">Je regarde la photo…</span></div></div>
+    <div id="panneau" hidden><div class="feuille" id="panneauContenu"></div></div>
+  </div>
+
+  <footer>
+    <div id="bulle">Bonjour Charly. <b>Prends une photo</b> pour commencer, ou écris « aide ».</div>
+    <form class="barre" id="formCmd" autocomplete="off">
+      <input id="cmd" placeholder="Écris ou dicte : « cote 2,15 », « note… »" enterkeyhint="send">
+      <button aria-label="Envoyer"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M3 20l18-8L3 4v6l12 2-12 2z"/></svg></button>
+    </form>
+  </footer>
+</div>
+<input type="file" id="fichier" accept="image/*" capture="environment" hidden>
+<input type="file" id="importer" accept="image/*,video/*" hidden>
+
+<script>
+"use strict";
+// ============================================================ état
+const $ = id => document.getElementById(id);
+const cv_ = { pret: false };
+let R = null;                 // relevé en cours
+let IMG = null;               // canvas de l'image courante (originale ou redressée)
+let vueT = { s: 1, x: 0, y: 0 }; // image -> écran : X = x + s*u
+let sel = -1, mode = "lignes", poignees = null, trace = null, historique = [];
+let fin = false, aimant = true, cible = null, accroche = null;   // viseur de précision : mode fin, aimant, point visé
+const C = $("vue"), ctx = C.getContext("2d");
+
+// ============================================================ OpenCV (chargé en arrière-plan)
+function chargerOpenCV() {
+  return new Promise((ok, ko) => {
+    if (cv_.pret) return ok();
+    const s = document.createElement("script"); s.src = "opencv.js"; s.async = true;
+    s.onload = () => {
+      const fin = () => { cv_.pret = true; ok(); };
+      if (window.cv && window.cv.Mat) fin();
+      else if (window.cv && window.cv.then) window.cv.then(m => { window.cv = m; fin(); });
+      else if (window.cv) window.cv.onRuntimeInitialized = fin; else ko(new Error("OpenCV absent"));
+    };
+    s.onerror = () => ko(new Error("opencv.js introuvable"));
+    document.head.appendChild(s);
+  });
+}
+
+// ============================================================ messages
+function dire(html) { $("bulle").innerHTML = html; }
+function attente(txt) { $("attente").hidden = !txt; if (txt) $("attenteTxt").textContent = txt; }
+
+// ============================================================ stockage local (IndexedDB) : rien ne quitte le téléphone
+let BD = null;
+function ouvrirBD() {
+  return new Promise(ok => {
+    try {
+      const r = indexedDB.open("releve_photo_numerobis", 1);
+      r.onupgradeneeded = () => r.result.createObjectStore("releves", { keyPath: "id" });
+      r.onsuccess = () => { BD = r.result; ok(); }; r.onerror = () => ok();
+    } catch (e) { ok(); }
+  });
+}
+function bd(op, val) {
+  return new Promise(ok => {
+    if (!BD) return ok(null);
+    try {
+      const t = BD.transaction("releves", op === "lire" || op === "tout" ? "readonly" : "readwrite").objectStore("releves");
+      const r = op === "tout" ? t.getAll() : op === "lire" ? t.get(val) : op === "suppr" ? t.delete(val) : t.put(val);
+      r.onsuccess = () => ok(r.result); r.onerror = () => ok(null);
+    } catch (e) { ok(null); }
+  });
+}
+let minuteur = null;
+function sauver() { clearTimeout(minuteur); minuteur = setTimeout(() => { if (R) { R.maj = Date.now(); R.image = IMG.toDataURL("image/jpeg", 0.85); bd("ecrire", R); } }, 600); }
+function memoriser() { if (R) { historique.push(JSON.stringify({ lignes: R.lignes, notes: R.notes, sx: R.sx, sy: R.sy })); if (historique.length > 40) historique.shift(); } }
+
+// ============================================================ photo
+$("bPhoto").onclick = () => $("fichier").click();
+$("bImport").onclick = () => $("importer").click();
+$("fichier").onchange = $("importer").onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  if (/^video\//.test(f.type) || /\.(mp4|mov|m4v|webm|3gp)$/i.test(f.name)) return choisirImageVideo(f);
+  attente("J'ouvre la photo…");
+  const bmp = await createImageBitmap(f).catch(() => null);
+  if (!bmp) { attente(""); return dire("Je n'arrive pas à lire cette photo."); }
+  demarrer(bmp, bmp.width, bmp.height, f.name);
+};
+async function demarrer(source, w, h, origine) {
+  // point de départ commun : photo prise, photo importée, ou image choisie dans une vidéo
+  $("panneau").hidden = true;
+  const max = 1600, k = Math.min(1, max / Math.max(w, h));
+  IMG = document.createElement("canvas"); IMG.width = Math.round(w * k); IMG.height = Math.round(h * k);
+  IMG.getContext("2d").drawImage(source, 0, 0, IMG.width, IMG.height);
+  const d = new Date();
+  R = { id: "r" + d.getTime(), nom: "Relevé du " + d.toLocaleDateString("fr-FR") + " " + d.toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }),
+        cree: d.getTime(), lignes: [], notes: [], sx: null, sy: null, redresse: false, sensibilite: 1, origine: origine || "photo" };
+  historique = []; sel = -1; mode = "lignes"; poignees = null;
+  montrerTravail(); cadrer(); dessiner();
+  await detecter();
+  sauver();
+}
+function choisirImageVideo(f) {
+  // vidéo importée : on choisit au curseur l'image la plus nette et la plus en face, puis même travail qu'une photo
+  const url = URL.createObjectURL(f);
+  panneau(`<h2>Choisis l'image</h2><p>Fais glisser le curseur jusqu'à l'image la plus nette, où la façade est la plus entière.</p>
+    <video id="vImp" src="${url}" playsinline muted preload="auto" style="width:100%;max-height:46vh;background:#000;border-radius:10px"></video>
+    <input id="vCurseur" type="range" min="0" max="1000" value="0" style="width:100%;margin:12px 0;accent-color:#e8b44c">
+    <div style="display:flex;gap:8px;justify-content:space-between"><button class="btn" id="vMoins">◀ image</button><span id="vTemps" style="align-self:center;color:#b9c7bd">0,0 s</span><button class="btn" id="vPlus">image ▶</button></div>
+    <button class="gros" id="vOk" style="margin:14px auto 0;justify-content:center">Utiliser cette image</button>`);
+  const v = $("vImp"), c = $("vCurseur"), t = $("vTemps");
+  const aller = x => { if (!v.duration) return; v.currentTime = Math.max(0, Math.min(v.duration - 0.05, x)); t.textContent = v.currentTime.toFixed(1).replace(".", ",") + " s"; c.value = Math.round(v.currentTime / v.duration * 1000); };
+  v.onloadedmetadata = () => aller(0);
+  c.oninput = () => aller(v.duration * c.value / 1000);
+  $("vMoins").onclick = () => aller(v.currentTime - 1 / 30); $("vPlus").onclick = () => aller(v.currentTime + 1 / 30);
+  $("vOk").onclick = () => { if (!v.videoWidth) return dire("La vidéo n'est pas encore prête, réessaie dans une seconde.");
+    demarrer(v, v.videoWidth, v.videoHeight, f.name + " à " + v.currentTime.toFixed(1) + " s"); URL.revokeObjectURL(url);
+    setTimeout(() => dire(`Image prise à <b>${v.currentTime.toFixed(1).replace(".", ",")} s</b> de la vidéo. Le relevé vidéo complet (plusieurs images, 3D) arrive à l'étape 3.`), 50); };
+  v.onerror = () => { $("panneau").hidden = true; dire("Je n'arrive pas à lire cette vidéo sur ce téléphone."); };
+}
+
+function montrerTravail() { $("accueil").hidden = true; $("outils").hidden = false; $("titre").textContent = R.nom; majOutils(); }
+
+// ============================================================ reconnaissance des lignes
+async function detecter() {
+  attente("Je reconnais les lignes…");
+  try { await chargerOpenCV(); } catch (e) { attente(""); dire("L'outil de reconnaissance n'est pas chargé (<b>opencv.js</b>). Ouvre l'appli une fois avec Internet pour qu'elle le garde. Tu peux tracer les lignes à la main avec <b>✎ Tracer</b>."); return; }
+  await new Promise(r => setTimeout(r, 30));
+  const cv = window.cv; const src = cv.imread(IMG), g = new cv.Mat(), b = new cv.Mat(), lignes = new cv.Mat();
+  try {
+    cv.cvtColor(src, g, cv.COLOR_RGBA2GRAY); cv.GaussianBlur(g, g, new cv.Size(5, 5), 0);
+    const sens = R.sensibilite || 1, m = Math.max(IMG.width, IMG.height);
+    cv.Canny(g, b, 40 / sens, 120 / sens);
+    cv.HoughLinesP(b, lignes, 1, Math.PI / 180, Math.round(50 / sens), Math.round(m * 0.035 / sens), Math.round(m * 0.008));
+    let seg = [];
+    for (let i = 0; i < lignes.rows; i++) { const p = lignes.data32S.subarray(i * 4, i * 4 + 4); seg.push({ x1: p[0], y1: p[1], x2: p[2], y2: p[3] }); }
+    seg = fusionner(seg, m).sort((a, c) => long(c) - long(a)).slice(0, 160);
+    memoriser();
+    const gardees = R.lignes.filter(l => l.cote || l.main);       // on garde les lignes cotées ou tracées à la main
+    R.lignes = gardees.concat(seg.map(s => ({ ...s })));
+    sel = -1; dessiner();
+    dire(`J'ai trouvé <b>${seg.length} lignes</b>. Touche celle dont tu connais la longueur et donne sa cote réelle. ` +
+         (R.redresse ? "" : "Pour une façade prise de biais, appuie d'abord sur <b>⟂ Redresser</b>."));
+  } catch (e) { dire("La reconnaissance a échoué : " + e.message); }
+  finally { src.delete(); g.delete(); b.delete(); lignes.delete(); attente(""); }
+}
+const long = l => Math.hypot(l.x2 - l.x1, l.y2 - l.y1);
+const angle = l => { let a = Math.atan2(l.y2 - l.y1, l.x2 - l.x1); if (a < 0) a += Math.PI; if (a >= Math.PI) a -= Math.PI; return a; };
+function fusionner(seg, m) {
+  // regroupe les morceaux d'une même ligne (même direction, même droite, bouts proches)
+  const tolA = 2.5 * Math.PI / 180, tolD = Math.max(3, m * 0.004), tolG = m * 0.02;
+  seg.sort((a, b) => long(b) - long(a)); const out = [];
+  for (const s of seg) {
+    let pris = false;
+    for (const o of out) {
+      let da = Math.abs(angle(s) - angle(o)); da = Math.min(da, Math.PI - da); if (da > tolA) continue;
+      const L = long(o), ux = (o.x2 - o.x1) / L, uy = (o.y2 - o.y1) / L;
+      const d1 = Math.abs((s.x1 - o.x1) * uy - (s.y1 - o.y1) * ux), d2 = Math.abs((s.x2 - o.x1) * uy - (s.y2 - o.y1) * ux);
+      if (Math.max(d1, d2) > tolD) continue;
+      const t1 = (s.x1 - o.x1) * ux + (s.y1 - o.y1) * uy, t2 = (s.x2 - o.x1) * ux + (s.y2 - o.y1) * uy;
+      const a = Math.min(t1, t2), b = Math.max(t1, t2);
+      if (a > L + tolG || b < -tolG) continue;
+      const lo = Math.min(0, a), hi = Math.max(L, b);
+      o.x2 = o.x1 + ux * hi; o.y2 = o.y1 + uy * hi; o.x1 = o.x1 + ux * lo; o.y1 = o.y1 + uy * lo;
+      pris = true; break;
+    }
+    if (!pris) out.push({ ...s });
+  }
+  return out;
+}
+
+// ============================================================ échelle : 1 ou 2 cotes
+function majEchelle() {
+  const c = R.lignes.filter(l => l.cote > 0);
+  R.sx = R.sy = null; R.aniso = false;
+  if (!c.length) return;
+  if (c.length >= 2 && R.redresse) {
+    // deux cotes de directions différentes : échelle horizontale et verticale séparées (corrige l'écrasement de la photo)
+    let best = null;
+    for (let i = 0; i < c.length; i++) for (let j = i + 1; j < c.length; j++) {
+      const a = c[i], b = c[j];
+      const ax = (a.x2 - a.x1) ** 2, ay = (a.y2 - a.y1) ** 2, bx = (b.x2 - b.x1) ** 2, by = (b.y2 - b.y1) ** 2;
+      const det = ax * by - ay * bx; if (Math.abs(det) < 1e-6 * (ax + ay) * (bx + by)) continue;
+      const X = (a.cote ** 2 * by - ay * b.cote ** 2) / det, Y = (ax * b.cote ** 2 - a.cote ** 2 * bx) / det;
+      if (X > 0 && Y > 0 && (!best || Math.abs(det) > best.det)) best = { det: Math.abs(det), sx: Math.sqrt(X), sy: Math.sqrt(Y) };
+    }
+    if (best) { R.sx = best.sx; R.sy = best.sy; R.aniso = true; return; }
+  }
+  const s = c.reduce((t, l) => t + l.cote / long(l), 0) / c.length;   // une seule direction : même échelle partout
+  R.sx = R.sy = s;
+}
+const metres = l => R.sx ? Math.hypot((l.x2 - l.x1) * R.sx, (l.y2 - l.y1) * R.sy) : null;
+function fmt(m) { return m == null ? "—" : (m < 1 ? (m * 100).toFixed(1).replace(".", ",") + " cm" : m.toFixed(2).replace(".", ",") + " m"); }
+function lireCote(t) {
+  const m = String(t).replace(/\s/g, "").replace(",", ".").match(/^(\d+(?:\.\d+)?)(mm|cm|m)?$/i); if (!m) return null;
+  let v = parseFloat(m[1]); const u = (m[2] || "").toLowerCase();
+  if (u === "cm") v /= 100; else if (u === "mm") v /= 1000; else if (!u && v > 30) v /= 100;   // « 215 » sans unité = 215 cm
+  return v > 0 ? v : null;
+}
+
+// ============================================================ redressement (vue de face)
+function quadAuto() {
+  const W = IMG.width, H = IMG.height, hz = [], vt = [];
+  for (const l of R.lignes) { const a = angle(l) * 180 / Math.PI; if (long(l) < Math.min(W, H) * 0.15) continue; if (a < 20 || a > 160) hz.push(l); else if (a > 60 && a < 120) vt.push(l); }
+  const my = l => (l.y1 + l.y2) / 2, mx = l => (l.x1 + l.x2) / 2;
+  if (hz.length >= 2 && vt.length >= 2) {
+    const h = hz.sort((a, b) => my(a) - my(b)), v = vt.sort((a, b) => mx(a) - mx(b));
+    const H0 = h[0], H1 = h[h.length - 1], V0 = v[0], V1 = v[v.length - 1];
+    const q = [inter(H0, V0), inter(H0, V1), inter(H1, V1), inter(H1, V0)];
+    if (q.every(p => p && p.x > -W * .2 && p.x < W * 1.2 && p.y > -H * .2 && p.y < H * 1.2)) return q;
+  }
+  return [{ x: W * .12, y: H * .12 }, { x: W * .88, y: H * .12 }, { x: W * .88, y: H * .88 }, { x: W * .12, y: H * .88 }];
+}
+function vraiesProportions(q, u0, v0) {
+  // Proportions réelles d'un rectangle vu en perspective (méthode publiée de Zhang et He, 2006, « Whiteboard scanning ») :
+  // on retrouve la focale de l'appareil à partir des 4 coins, puis le rapport largeur / hauteur vrai. null si non calculable.
+  const P = p => [p.x, p.y, 1], X = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]], D = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const m1 = P(q[0]), m2 = P(q[1]), m3 = P(q[3]), m4 = P(q[2]);          // 1 haut gauche, 2 haut droite, 3 bas gauche, 4 bas droite
+  const k2 = D(X(m1, m4), m3) / D(X(m2, m4), m3), k3 = D(X(m1, m4), m2) / D(X(m3, m4), m2);
+  const n2 = m2.map(v => v * k2).map((v, i) => v - m1[i]), n3 = m3.map(v => v * k3).map((v, i) => v - m1[i]);
+  if (!isFinite(k2) || !isFinite(k3)) return null;
+  const affine = Math.abs(n2[2]) < 1e-6 || Math.abs(n3[2]) < 1e-6;
+  if (affine) return Math.sqrt((n2[0] ** 2 + n2[1] ** 2) / (n3[0] ** 2 + n3[1] ** 2));
+  const f2 = -((n2[0] * n3[0] - (n2[0] * n3[2] + n2[2] * n3[0]) * u0 + n2[2] * n3[2] * u0 * u0) +
+               (n2[1] * n3[1] - (n2[1] * n3[2] + n2[2] * n3[1]) * v0 + n2[2] * n3[2] * v0 * v0)) / (n2[2] * n3[2]);
+  if (!(f2 > 0)) return null;
+  const q2 = n => { const x = n[0] - u0 * n[2], y = n[1] - v0 * n[2]; return (x * x + y * y) / f2 + n[2] * n[2]; };
+  const r = Math.sqrt(q2(n2) / q2(n3));
+  return isFinite(r) && r > 0.05 && r < 20 ? r : null;
+}
+function inter(a, b) {
+  const d = (a.x1 - a.x2) * (b.y1 - b.y2) - (a.y1 - a.y2) * (b.x1 - b.x2); if (Math.abs(d) < 1e-9) return null;
+  const t = ((a.x1 - b.x1) * (b.y1 - b.y2) - (a.y1 - b.y1) * (b.x1 - b.x2)) / d;
+  return { x: a.x1 + t * (a.x2 - a.x1), y: a.y1 + t * (a.y2 - a.y1) };
+}
+async function validerRedressement() {
+  try { await chargerOpenCV(); } catch (e) { return dire("Le redressement a besoin d'opencv.js : ouvre l'appli une fois avec Internet."); }
+  const cv = window.cv, q = poignees;
+  let w = Math.round((Math.hypot(q[1].x - q[0].x, q[1].y - q[0].y) + Math.hypot(q[2].x - q[3].x, q[2].y - q[3].y)) / 2);
+  let h = Math.round((Math.hypot(q[3].x - q[0].x, q[3].y - q[0].y) + Math.hypot(q[2].x - q[1].x, q[2].y - q[1].y)) / 2);
+  const rap = vraiesProportions(q, IMG.width / 2, IMG.height / 2);   // largeur / hauteur réelles du rectangle, d'après la perspective
+  if (rap) { const a = Math.sqrt(w * h); w = Math.round(a * Math.sqrt(rap)); h = Math.round(a / Math.sqrt(rap)); R.proportions = "perspective"; }
+  else R.proportions = "approchees";
+  const k = Math.min(1, 1800 / Math.max(w, h)), W = Math.max(50, Math.round(w * k)), H = Math.max(50, Math.round(h * k));
+  attente("Je remets la façade de face…");
+  const s = cv.matFromArray(4, 1, cv.CV_32FC2, q.flatMap(p => [p.x, p.y]));
+  const d = cv.matFromArray(4, 1, cv.CV_32FC2, [0, 0, W, 0, W, H, 0, H]);
+  const M = cv.getPerspectiveTransform(s, d), src = cv.imread(IMG), dst = new cv.Mat();
+  cv.warpPerspective(src, dst, M, new cv.Size(W, H), cv.INTER_LINEAR, cv.BORDER_CONSTANT, new cv.Scalar(10, 28, 19, 255));
+  const m = M.data64F, tr = (x, y) => { const z = m[6] * x + m[7] * y + m[8]; return { x: (m[0] * x + m[1] * y + m[2]) / z, y: (m[3] * x + m[4] * y + m[5]) / z }; };
+  memoriser();
+  const cotees = R.lignes.filter(l => l.cote || l.main).map(l => { const a = tr(l.x1, l.y1), b = tr(l.x2, l.y2); return { ...l, x1: a.x, y1: a.y, x2: b.x, y2: b.y }; });
+  const nouv = document.createElement("canvas"); nouv.width = W; nouv.height = H; cv.imshow(nouv, dst);
+  s.delete(); d.delete(); M.delete(); src.delete(); dst.delete();
+  IMG = nouv; R.redresse = true; R.lignes = cotees; mode = "lignes"; poignees = null; sel = -1;
+  majEchelle(); cadrer(); majOutils(); dessiner(); attente("");
+  await detecter();
+  dire("Façade remise de face. " + (R.sx ? "Les cotes sont conservées." : "Touche une ligne et donne sa cote. Avec <b>deux cotes</b> (une horizontale, une verticale), la mise à l'échelle est exacte dans les deux sens."));
+  sauver();
+}
+
+// ============================================================ dessin
+function taille() { const r = C.getBoundingClientRect(), d = window.devicePixelRatio || 1; C.width = r.width * d; C.height = r.height * d; ctx.setTransform(d, 0, 0, d, 0, 0); }
+function cadrer() { if (!IMG) return; taille(); const r = C.getBoundingClientRect(), m = 12, s = Math.min((r.width - 2 * m) / IMG.width, (r.height - 2 * m - 50) / IMG.height); vueT = { s, x: (r.width - IMG.width * s) / 2, y: (r.height - 50 - IMG.height * s) / 2 }; }
+const ecran = (u, v) => ({ X: vueT.x + vueT.s * u, Y: vueT.y + vueT.s * v });
+const image = (X, Y) => ({ x: (X - vueT.x) / vueT.s, y: (Y - vueT.y) / vueT.s });
+function dessiner() {
+  const r = C.getBoundingClientRect(); ctx.clearRect(0, 0, r.width, r.height); if (!IMG) return;
+  ctx.drawImage(IMG, vueT.x, vueT.y, IMG.width * vueT.s, IMG.height * vueT.s);
+  if (mode === "redresser" && poignees) { ctx.fillStyle = "rgba(10,28,19,.35)"; ctx.fillRect(vueT.x, vueT.y, IMG.width * vueT.s, IMG.height * vueT.s); }
+  R.lignes.forEach((l, i) => {
+    const a = ecran(l.x1, l.y1), b = ecran(l.x2, l.y2), choisie = i === sel;
+    ctx.lineCap = "round";
+    ctx.strokeStyle = "rgba(0,0,0,.55)"; ctx.lineWidth = choisie ? 7 : 4.5; ctx.beginPath(); ctx.moveTo(a.X, a.Y); ctx.lineTo(b.X, b.Y); ctx.stroke();
+    ctx.strokeStyle = choisie ? "#ffffff" : l.cote ? "#7fc79a" : l.main ? "#f6dc96" : "#e8b44c"; ctx.lineWidth = choisie ? 4 : 2;
+    ctx.beginPath(); ctx.moveTo(a.X, a.Y); ctx.lineTo(b.X, b.Y); ctx.stroke();
+    const mm = metres(l);
+    if (mm != null && (choisie || l.cote || long(l) * vueT.s > 70)) {
+      const t = (l.cote ? "✓ " : (R.redresse ? "" : "≈ ")) + fmt(mm), cx = (a.X + b.X) / 2, cy = (a.Y + b.Y) / 2;
+      ctx.font = "600 12px Barlow, sans-serif"; const w = ctx.measureText(t).width + 10;
+      ctx.fillStyle = l.cote ? "rgba(20,70,45,.92)" : "rgba(15,42,29,.85)"; ctx.fillRect(cx - w / 2, cy - 9, w, 18);
+      ctx.fillStyle = l.cote ? "#c9f0d6" : "#f6dc96"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(t, cx, cy + 1);
+    }
+  });
+  if (trace) { const a = ecran(trace.x1, trace.y1), b = ecran(trace.x2, trace.y2); ctx.strokeStyle = "#ffffff"; ctx.setLineDash([6, 5]); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(a.X, a.Y); ctx.lineTo(b.X, b.Y); ctx.stroke(); ctx.setLineDash([]); }
+  if (sel >= 0 && R.lignes[sel] && mode === "lignes") {          // extrémités réglables de la ligne choisie
+    const l = R.lignes[sel];
+    [[l.x1, l.y1], [l.x2, l.y2]].forEach(([u, v]) => { const e = ecran(u, v); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(e.X, e.Y, 11, 0, 7); ctx.stroke(); ctx.fillStyle = "rgba(255,255,255,.25)"; ctx.fill(); });
+  }
+  if (mode === "redresser" && poignees) {
+    ctx.strokeStyle = "#e8b44c"; ctx.lineWidth = 2.5; ctx.beginPath();
+    poignees.forEach((p, i) => { const e = ecran(p.x, p.y); i ? ctx.lineTo(e.X, e.Y) : ctx.moveTo(e.X, e.Y); }); ctx.closePath(); ctx.stroke();
+    poignees.forEach((p, i) => { const e = ecran(p.x, p.y); ctx.fillStyle = "rgba(232,180,76,.25)"; ctx.beginPath(); ctx.arc(e.X, e.Y, 22, 0, 7); ctx.fill();
+      ctx.strokeStyle = "#e8b44c"; ctx.lineWidth = 1.5; ctx.beginPath(); ctx.moveTo(e.X - 14, e.Y); ctx.lineTo(e.X + 14, e.Y); ctx.moveTo(e.X, e.Y - 14); ctx.lineTo(e.X, e.Y + 14); ctx.stroke();
+      ctx.fillStyle = "#0f2a1d"; ctx.strokeStyle = "#e8b44c"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(e.X + 16, e.Y - 16, 9, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#e8b44c"; ctx.font = "700 11px Barlow"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText("1234"[i], e.X + 16, e.Y - 15); });
+  }
+  if (cible) loupe(pointCible());
+}
+function pointCible() {
+  if (!cible) return null;
+  if (cible.type === "poignee") return poignees[cible.i];
+  const l = cible.type === "trace" ? trace : R.lignes[cible.ligne];
+  return cible.bout === 1 ? { x: l.x1, y: l.y1 } : { x: l.x2, y: l.y2 };
+}
+function loupe(P) {
+  // loupe de visée : agrandit la zone autour du point visé, réticule au centre, placée loin du doigt
+  if (!P) return; const r = C.getBoundingClientRect(), R0 = 68, e = ecran(P.x, P.y);
+  const cx = e.X < r.width / 2 ? r.width - R0 - 12 : R0 + 12, cy = R0 + 12, z = Math.max(vueT.s * 5, 3);
+  ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R0, 0, 7); ctx.fillStyle = "#0a1c13"; ctx.fill(); ctx.clip();
+  ctx.imageSmoothingEnabled = false; ctx.drawImage(IMG, cx - P.x * z, cy - P.y * z, IMG.width * z, IMG.height * z); ctx.imageSmoothingEnabled = true;
+  ctx.strokeStyle = "rgba(232,180,76,.9)"; ctx.lineWidth = 1.5;
+  R.lignes.forEach(l => { ctx.beginPath(); ctx.moveTo(cx + (l.x1 - P.x) * z, cy + (l.y1 - P.y) * z); ctx.lineTo(cx + (l.x2 - P.x) * z, cy + (l.y2 - P.y) * z); ctx.stroke(); });
+  if (mode === "redresser" && poignees) { ctx.strokeStyle = "rgba(255,255,255,.8)"; ctx.beginPath(); poignees.forEach((q, i) => { const X = cx + (q.x - P.x) * z, Y = cy + (q.y - P.y) * z; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }); ctx.closePath(); ctx.stroke(); }
+  ctx.restore();
+  ctx.strokeStyle = accroche ? "#7fc79a" : "#e8b44c"; ctx.lineWidth = 3; ctx.beginPath(); ctx.arc(cx, cy, R0, 0, 7); ctx.stroke();
+  ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(cx - 16, cy); ctx.lineTo(cx - 4, cy); ctx.moveTo(cx + 4, cy); ctx.lineTo(cx + 16, cy); ctx.moveTo(cx, cy - 16); ctx.lineTo(cx, cy - 4); ctx.moveTo(cx, cy + 4); ctx.lineTo(cx, cy + 16); ctx.stroke();
+  ctx.fillStyle = "rgba(15,42,29,.9)"; ctx.fillRect(cx - 46, cy + R0 - 4, 92, 18); ctx.fillStyle = accroche ? "#c9f0d6" : "#f6dc96"; ctx.font = "600 11px Barlow"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+  ctx.fillText(accroche ? "accroché" : fin ? "mode fin ×4" : "×" + (z / vueT.s).toFixed(0), cx, cy + R0 + 5);
+}
+function pointsAimant() {
+  // coins possibles : bouts des lignes et croisements de deux lignes de directions différentes
+  const L = R.lignes.slice(0, 120), pts = [];
+  L.forEach(l => pts.push({ x: l.x1, y: l.y1 }, { x: l.x2, y: l.y2 }));
+  for (let i = 0; i < L.length; i++) for (let j = i + 1; j < L.length; j++) {
+    let da = Math.abs(angle(L[i]) - angle(L[j])); da = Math.min(da, Math.PI - da); if (da < .5) continue;
+    const p = inter(L[i], L[j]); if (!p) continue;
+    const pres = l => { const t = ((p.x - l.x1) * (l.x2 - l.x1) + (p.y - l.y1) * (l.y2 - l.y1)) / (long(l) ** 2 || 1); return t > -.08 && t < 1.08; };
+    if (pres(L[i]) && pres(L[j])) pts.push(p);
+  }
+  return pts;
+}
+function viser(P) {
+  // applique la position visée au point cible, avec l'aimant si demandé
+  accroche = null;
+  if (aimant && geste && geste.aimant) {
+    const rayon = 14 / vueT.s; let best = null, bd = rayon;
+    for (const q of geste.aimant) { const d = Math.hypot(q.x - P.x, q.y - P.y); if (d < bd) { bd = d; best = q; } }
+    if (best) { P = { ...best }; accroche = best; }
+  }
+  if (cible.type === "poignee") poignees[cible.i] = P;
+  else { const l = cible.type === "trace" ? trace : R.lignes[cible.ligne]; if (cible.bout === 1) { l.x1 = P.x; l.y1 = P.y; } else { l.x2 = P.x; l.y2 = P.y; } }
+}
+window.addEventListener("resize", () => { if (IMG) { cadrer(); dessiner(); } });
+
+// ============================================================ gestes : toucher, glisser, pincer
+const doigts = new Map(); let geste = null;
+C.addEventListener("pointerdown", e => {
+  C.setPointerCapture(e.pointerId); doigts.set(e.pointerId, { X: e.offsetX, Y: e.offsetY });
+  if (doigts.size === 2) { const [p, q] = [...doigts.values()]; geste = { type: "pince", d: Math.hypot(p.X - q.X, p.Y - q.Y), t: { ...vueT }, c: { X: (p.X + q.X) / 2, Y: (p.Y + q.Y) / 2 } }; trace = null; return; }
+  const P = image(e.offsetX, e.offsetY);
+  const proche = (pts, rayon) => { let b = -1, bd = rayon; pts.forEach((p, i) => { const s = ecran(p.x, p.y), d = Math.hypot(s.X - e.offsetX, s.Y - e.offsetY); if (d < bd) { bd = d; b = i; } }); return b; };
+  const viseur = (c, depart) => { cible = c; geste = { type: "viseur", X: e.offsetX, Y: e.offsetY, P: { ...depart }, aimant: aimant ? pointsAimant() : null }; dessiner(); };
+  if (mode === "redresser" && poignees) {
+    // on attrape le coin le plus proche (zone large) ; il bouge AVEC le doigt mais décalé : le doigt ne le cache pas
+    const i = proche(poignees, 70); if (i >= 0) return viseur({ type: "poignee", i }, poignees[i]);
+  }
+  if (mode === "lignes" && sel >= 0 && R.lignes[sel]) {
+    const l = R.lignes[sel], b = proche([{ x: l.x1, y: l.y1 }, { x: l.x2, y: l.y2 }], 36);
+    if (b >= 0) { memoriser(); return viseur({ type: "bout", ligne: sel, bout: b + 1 }, b ? { x: l.x2, y: l.y2 } : { x: l.x1, y: l.y1 }); }
+  }
+  if (mode === "tracer") { trace = { x1: P.x, y1: P.y, x2: P.x, y2: P.y }; return viseur({ type: "trace", bout: 2 }, P); }
+  geste = { type: "tape", X: e.offsetX, Y: e.offsetY, t: { ...vueT }, bouge: false };
+});
+C.addEventListener("pointermove", e => {
+  if (!doigts.has(e.pointerId)) return; doigts.set(e.pointerId, { X: e.offsetX, Y: e.offsetY }); if (!geste) return;
+  if (geste.type === "pince" && doigts.size === 2) {
+    const [p, q] = [...doigts.values()], d = Math.hypot(p.X - q.X, p.Y - q.Y), k = d / geste.d, c = { X: (p.X + q.X) / 2, Y: (p.Y + q.Y) / 2 };
+    const s = Math.min(Math.max(geste.t.s * k, 0.05), 20);
+    vueT = { s, x: c.X - (geste.c.X - geste.t.x) * s / geste.t.s, y: c.Y - (geste.c.Y - geste.t.y) * s / geste.t.s }; dessiner();
+  } else if (geste.type === "viseur") {
+    const g = fin ? 0.25 : 1;   // mode fin : le point bouge 4 fois moins vite que le doigt
+    viser({ x: geste.P.x + (e.offsetX - geste.X) * g / vueT.s, y: geste.P.y + (e.offsetY - geste.Y) * g / vueT.s }); dessiner();
+  }
+  else if (geste.type === "tape") {
+    const dx = e.offsetX - geste.X, dy = e.offsetY - geste.Y;
+    if (geste.bouge || Math.hypot(dx, dy) > 8) { geste.bouge = true; vueT = { ...geste.t, x: geste.t.x + dx, y: geste.t.y + dy }; dessiner(); }
+  }
+});
+function finDoigt(e) {
+  doigts.delete(e.pointerId); if (!geste) return;
+  if (geste.type === "tape" && !geste.bouge) choisir(e.offsetX, e.offsetY);
+  if (geste.type === "viseur") {
+    const c = cible; cible = null; accroche = null;
+    if (c.type === "trace" && trace) {
+      if (long(trace) * vueT.s > 15) { memoriser(); R.lignes.unshift({ ...trace, main: true }); mode = "lignes"; majOutils(); sel = 0; ouvrirFiche(); sauver();
+        dire("Ligne tracée. Ajuste ses <b>deux bouts</b> au viseur si besoin (touche un rond blanc), puis donne sa cote."); }
+      trace = null;
+    } else if (c.type === "bout") { majEchelle(); ouvrirFiche(); sauver(); }
+    dessiner();
+  }
+  if (geste.type === "pince") { cible = null; accroche = null; }
+  if (geste.type === "pince" && doigts.size === 1) { const [p] = [...doigts.values()]; geste = { type: "tape", X: p.X, Y: p.Y, t: { ...vueT }, bouge: true }; return; }
+  geste = null;
+}
+C.addEventListener("pointerup", finDoigt); C.addEventListener("pointercancel", finDoigt);
+C.addEventListener("wheel", e => { e.preventDefault(); const k = Math.exp(-e.deltaY * 0.0015), s = Math.min(Math.max(vueT.s * k, .05), 20); vueT = { s, x: e.offsetX - (e.offsetX - vueT.x) * s / vueT.s, y: e.offsetY - (e.offsetY - vueT.y) * s / vueT.s }; dessiner(); }, { passive: false });
+
+function choisir(X, Y) {
+  if (mode === "redresser") return;
+  let best = -1, bd_ = 24;
+  R.lignes.forEach((l, i) => {
+    const a = ecran(l.x1, l.y1), b = ecran(l.x2, l.y2), dx = b.X - a.X, dy = b.Y - a.Y, L2 = dx * dx + dy * dy || 1;
+    const t = Math.max(0, Math.min(1, ((X - a.X) * dx + (Y - a.Y) * dy) / L2)), d = Math.hypot(X - a.X - t * dx, Y - a.Y - t * dy);
+    if (d < bd_) { bd_ = d; best = i; }
+  });
+  sel = best; dessiner();
+  if (sel >= 0) { ouvrirFiche(); dire("Ligne choisie. Donne sa cote, ou touche un <b>rond blanc</b> à un bout pour l'ajuster au viseur."); } else fermerFiche();
+}
+
+// ============================================================ fiche de la ligne choisie
+function ouvrirFiche() {
+  const l = R.lignes[sel]; if (!l) return fermerFiche();
+  $("fiche").hidden = false; $("outils").hidden = true;
+  const deg = Math.round(angle(l) * 180 / Math.PI), dir = (deg < 15 || deg > 165) ? "horizontale" : (deg > 75 && deg < 105) ? "verticale" : "en biais";
+  $("fEtiq").textContent = "Ligne " + dir + (l.cote ? " · cotée" : "");
+  $("fMesure").textContent = l.cote ? fmt(l.cote) : R.sx ? (R.redresse ? "" : "≈ ") + fmt(metres(l)) : "à coter";
+  $("fCote").value = l.cote ? String(l.cote).replace(".", ",") : "";
+}
+function fermerFiche() { $("fiche").hidden = true; $("outils").hidden = !R; sel = -1; dessiner(); }
+function poserCote(v) {
+  if (sel < 0) return dire("Touche d'abord une ligne sur la photo.");
+  const c = lireCote(v); if (c == null) return dire("Je n'ai pas compris la cote. Exemple : <b>2,15</b> (mètres) ou <b>60 cm</b>.");
+  memoriser(); R.lignes[sel].cote = c; majEchelle();
+  const n = R.lignes.filter(l => l.cote).length;
+  dire(`Cote de <b>${fmt(c)}</b> posée. ` + (R.aniso ? "Échelle exacte en largeur et en hauteur (2 cotes)." :
+       n === 1 ? (R.redresse ? "Toutes les lignes sont à l'échelle. Ajoute une cote dans l'autre sens pour plus de justesse." : "Mesures approximatives (photo de biais) : <b>⟂ Redresser</b> pour une vraie vue de face.") :
+       "Échelle moyenne de " + n + " cotes."));
+  ouvrirFiche(); dessiner(); sauver();
+}
+$("fOk").onclick = () => poserCote($("fCote").value);
+$("fCote").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); poserCote($("fCote").value); } });
+$("fSuppr").onclick = () => { if (sel < 0) return; memoriser(); R.lignes.splice(sel, 1); majEchelle(); fermerFiche(); sauver(); dire("Ligne supprimée. Écris « annule » pour la remettre."); };
+$("fFermer").onclick = fermerFiche;
+$("fNote").onclick = () => { $("cmd").focus(); $("cmd").value = "note "; dire("Écris ou dicte ta note pour cette ligne, puis envoie."); };
+
+// ============================================================ boutons d'outils
+function majOutils() {
+  $("bRedresser").classList.toggle("actif", mode === "redresser"); $("bTracer").classList.toggle("actif", mode === "tracer");
+  $("bRedresser").textContent = mode === "redresser" ? "✓ Valider" : "⟂ Redresser";
+  const vise = mode === "redresser" || mode === "tracer";
+  $("bFin").hidden = $("bAimant").hidden = !vise; $("bQuitter").hidden = mode !== "redresser";
+  $("bLignes").hidden = $("bExport").hidden = vise; $("bTracer").hidden = mode === "redresser";
+  $("bFin").classList.toggle("actif", fin); $("bAimant").classList.toggle("actif", aimant);
+}
+$("bFin").onclick = () => { fin = !fin; majOutils(); dire(fin ? "<b>Mode fin</b> : le point bouge 4 fois moins vite que ton doigt, pour viser au pixel près." : "Mode fin coupé."); };
+$("bAimant").onclick = () => { aimant = !aimant; majOutils(); dire(aimant ? "<b>Aimant</b> : le point se colle aux coins et aux croisements des lignes reconnues (cercle vert)." : "Aimant coupé : le point va exactement où tu le mènes."); };
+$("bQuitter").onclick = () => { mode = "lignes"; poignees = null; majOutils(); dessiner(); dire("Redressement annulé."); };
+$("bRedresser").onclick = () => {
+  if (mode === "redresser") return validerRedressement();
+  fermerFiche(); mode = "redresser"; poignees = quadAuto(); majOutils(); dessiner();
+  dire("Mets les <b>4 viseurs</b> sur les coins d'un rectangle de la façade (1 haut gauche, 2 haut droite, 3 bas droite, 4 bas gauche). Pose le doigt <b>à côté</b> d'un viseur et glisse : il suit sans être caché, la <b>loupe</b> montre le détail. Zoome à deux doigts, <b>🎯 Fin</b> pour viser au pixel. Puis <b>✓ Valider</b>.");
+};
+$("bTracer").onclick = () => { fermerFiche(); mode = mode === "tracer" ? "lignes" : "tracer"; majOutils(); dessiner(); dire(mode === "tracer" ? "Pose le doigt au début de la ligne et glisse jusqu'à la fin, en suivant la <b>loupe</b>. Tu pourras ensuite ajuster chaque bout." : "Mode choix des lignes."); };
+$("bLignes").onclick = () => panneauLignes();
+$("bExport").onclick = () => panneauExport();
+$("bMes").onclick = $("bMenu").onclick = () => panneauMenu();
+$("mVideo").onclick = () => dire("Le <b>relevé vidéo</b> arrive à l'étape 3 : on le prépare après tes essais du mode photo.");
+$("mPhoto").onclick = () => dire("Mode photo.");
+
+// ============================================================ panneaux
+function panneau(html) { $("panneauContenu").innerHTML = html; $("panneau").hidden = false; }
+$("panneau").addEventListener("click", e => { if (e.target.id === "panneau") $("panneau").hidden = true; });
+async function panneauMenu() {
+  const liste = ((await bd("tout")) || []).sort((a, b) => b.maj - a.maj);
+  panneau(`<h2>Mes relevés</h2>
+    <div class="choix" style="margin-bottom:12px"><button id="pNouv">📷 Nouvelle photo<small>Un nouveau relevé</small></button><button id="pImp">🖼 Importer<small>Photo ou vidéo du téléphone</small></button><button id="pAide">? Aide<small>Les commandes</small></button></div>
+    ${liste.length ? liste.map(r => `<div class="item"><img src="${r.image}" alt=""><div><b>${esc(r.nom)}</b><br><small>${r.lignes.filter(l => l.cote).length} cote(s) · ${r.notes.length} note(s)${r.redresse ? " · de face" : ""}</small></div><button class="btn" data-o="${r.id}">Ouvrir</button></div>`).join("") : "<p>Aucun relevé enregistré sur ce téléphone.</p>"}
+    <p style="font-size:13px">Les relevés restent sur ce téléphone. Pour les envoyer au bureau : <b>⇩ Partager</b>.</p>`);
+  $("pNouv").onclick = () => { $("panneau").hidden = true; $("fichier").click(); };
+  $("pAide").onclick = () => { $("panneau").hidden = true; executer("aide"); };
+  $("pImp").onclick = () => { $("panneau").hidden = true; $("importer").click(); };
+  document.querySelectorAll("[data-o]").forEach(b => b.onclick = () => ouvrirReleve(b.dataset.o));
+}
+async function ouvrirReleve(id) {
+  const r = await bd("lire", id); if (!r) return;
+  const im = new Image(); im.onload = () => {
+    IMG = document.createElement("canvas"); IMG.width = im.width; IMG.height = im.height; IMG.getContext("2d").drawImage(im, 0, 0);
+    R = r; sel = -1; mode = "lignes"; historique = []; majEchelle(); $("panneau").hidden = true; montrerTravail(); cadrer(); dessiner();
+    dire(`<b>${esc(R.nom)}</b> rouvert.`);
+  }; im.src = r.image;
+}
+function panneauLignes() {
+  const c = R.lignes.filter(l => l.cote).length;
+  panneau(`<h2>Lignes</h2><p>${R.lignes.length} lignes, dont ${c} cotée(s).</p>
+    <div class="choix"><button id="lPlus">+ Plus de lignes<small>Détection plus fine</small></button><button id="lMoins">− Moins de lignes<small>Seulement les nettes</small></button>
+    <button id="lCourtes">Effacer les petites<small>Garde les grandes</small></button><button id="lNotes">Notes (${R.notes.length})<small>Voir et effacer</small></button></div>`);
+  $("lPlus").onclick = () => { R.sensibilite = Math.min(3, (R.sensibilite || 1) * 1.4); $("panneau").hidden = true; detecter().then(sauver); };
+  $("lMoins").onclick = () => { R.sensibilite = Math.max(.4, (R.sensibilite || 1) / 1.4); $("panneau").hidden = true; detecter().then(sauver); };
+  $("lCourtes").onclick = () => { memoriser(); const m = Math.max(IMG.width, IMG.height) * .08; R.lignes = R.lignes.filter(l => l.cote || l.main || long(l) > m); $("panneau").hidden = true; sel = -1; dessiner(); sauver(); dire("Petites lignes effacées."); };
+  $("lNotes").onclick = () => {
+    panneau(`<h2>Notes</h2>${R.notes.length ? R.notes.map((n, i) => `<div class="item"><div>${esc(n.texte)}<br><small>${n.ligne != null ? "sur une ligne" : "générale"}</small></div><button class="btn rouge" data-n="${i}">×</button></div>`).join("") : "<p>Pas encore de note. Écris par exemple « note carrelage 60×60 ».</p>"}`);
+    document.querySelectorAll("[data-n]").forEach(b => b.onclick = () => { memoriser(); R.notes.splice(+b.dataset.n, 1); sauver(); $("panneau").hidden = true; dire("Note effacée."); });
+  };
+}
+function panneauExport() {
+  panneau(`<h2>Partager le relevé</h2><p>Le fichier part seulement là où tu le choisis (toi, le bureau…). Rien n'est envoyé tout seul.</p>
+    <div class="choix"><button id="eImg">🖼 Image cotée<small>JPEG de la photo et des cotes</small></button><button id="eDxf" ${R.sx ? "" : "disabled"}>📐 Plan DXF<small>${R.sx ? "Lignes en mètres (ArchiCAD)" : "Pose d'abord une cote"}</small></button>
+    <button id="eSvg" ${R.sx ? "" : "disabled"}>✏️ Façade SVG<small>${R.sx ? "Trait coté à l'échelle 1/100 (Blender, dessin)" : "Pose d'abord une cote"}</small></button><button id="eObj" ${R.sx ? "" : "disabled"}>🧊 Façade 3D<small>${R.sx ? "OBJ + photo plaquée (SketchUp, Blender, ArchiCAD)" : "Pose d'abord une cote"}</small></button>
+    <button id="eJson">🗂 Relevé complet<small>Pour Numérobis (.json)</small></button><button id="eTout" ${R.sx ? "" : "disabled"}>📦 Tout<small>Tous les fichiers d'un coup</small></button></div>
+    <p style="font-size:13px;margin-top:12px">DXF et OBJ sont en <b>mètres</b>. Dans ArchiCAD : Fichier ▸ Ouvrir/Joindre le DXF ; dans SketchUp : Importer (unités : mètres).</p>`);
+  $("eImg").onclick = () => partager(nomFichier("jpg"), imageCotee(), "image/jpeg");
+  $("eDxf").onclick = () => R.sx && partager(nomFichier("dxf"), new Blob([dxf()], { type: "application/dxf" }), "application/dxf");
+  $("eSvg").onclick = () => R.sx && partager(nomFichier("svg"), new Blob([svgFacade()], { type: "image/svg+xml" }), "image/svg+xml");
+  $("eJson").onclick = () => partager(nomFichier("json"), jsonReleve(), "application/json");
+  $("eObj").onclick = async () => R.sx && partagerPlusieurs(await fichiers3D());
+  $("eTout").onclick = async () => R.sx && partagerPlusieurs([new File([await imageCotee()], nomFichier("jpg"), { type: "image/jpeg" }), new File([dxf()], nomFichier("dxf"), { type: "application/dxf" }),
+    new File([svgFacade()], nomFichier("svg"), { type: "image/svg+xml" }), ...(await fichiers3D()), new File([jsonReleve()], nomFichier("json"), { type: "application/json" })]);
+}
+const nomFichier = ext => R.nom.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w]+/g, "_").replace(/^_|_$/g, "") + "." + ext;
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+async function partager(nom, blob, type) {
+  if (blob instanceof Promise) blob = await blob;
+  const f = new File([blob], nom, { type });
+  try { if (navigator.canShare && navigator.canShare({ files: [f] })) { await navigator.share({ files: [f], title: nom }); $("panneau").hidden = true; return dire(`<b>${esc(nom)}</b> partagé.`); } } catch (e) { if (e.name === "AbortError") return; }
+  const a = document.createElement("a"); a.href = URL.createObjectURL(f); a.download = nom; document.body.appendChild(a); a.click(); a.remove();
+  $("panneau").hidden = true; dire(`<b>${esc(nom)}</b> enregistré dans tes téléchargements.`);
+}
+const jsonReleve = () => new Blob([JSON.stringify({ format: "releve_photo_numerobis_1", unites: "pixels de l'image ; sx et sy en mètres par pixel", ...R, image: IMG.toDataURL("image/jpeg", .9) })], { type: "application/json" });
+async function fichiers3D() {
+  // façade en 3D : un plan à la vraie taille (mètres, Y vers le haut), avec la photo redressée plaquée dessus
+  const b = nomFichier("").slice(0, -1), Wm = IMG.width * R.sx, Hm = IMG.height * R.sy;
+  const obj = `# Agence Numérobis - ${R.nom}\n# façade ${Wm.toFixed(3)} m x ${Hm.toFixed(3)} m, unités : mètres\nmtllib ${b}.mtl\no Facade\n` +
+    `v 0 0 0\nv ${Wm.toFixed(4)} 0 0\nv ${Wm.toFixed(4)} ${Hm.toFixed(4)} 0\nv 0 ${Hm.toFixed(4)} 0\nvt 0 0\nvt 1 0\nvt 1 1\nvt 0 1\nvn 0 0 1\nusemtl photo\nf 1/1/1 2/2/1 3/3/1 4/4/1\n` +
+    `o Lignes\n` + R.lignes.map(l => `v ${(l.x1 * R.sx).toFixed(4)} ${((IMG.height - l.y1) * R.sy).toFixed(4)} 0.002\nv ${(l.x2 * R.sx).toFixed(4)} ${((IMG.height - l.y2) * R.sy).toFixed(4)} 0.002`).join("\n") + "\n" +
+    R.lignes.map((l, i) => `l ${5 + 2 * i} ${6 + 2 * i}`).join("\n") + "\n";
+  const mtl = `newmtl photo\nKd 1 1 1\nKa 0 0 0\nKs 0 0 0\nd 1\nillum 1\nmap_Kd ${b}_texture.jpg\n`;
+  const tex = await new Promise(ok => IMG.toBlob(ok, "image/jpeg", .9));
+  return [new File([obj], b + ".obj", { type: "text/plain" }), new File([mtl], b + ".mtl", { type: "text/plain" }), new File([tex], b + "_texture.jpg", { type: "image/jpeg" })];
+}
+async function partagerPlusieurs(fs) {
+  try { if (navigator.canShare && navigator.canShare({ files: fs })) { await navigator.share({ files: fs, title: R.nom }); $("panneau").hidden = true; return dire(`<b>${fs.length} fichiers</b> partagés.`); } } catch (e) { if (e.name === "AbortError") return; }
+  for (const f of fs) { const a = document.createElement("a"); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); await new Promise(r => setTimeout(r, 350)); }
+  $("panneau").hidden = true; dire(`<b>${fs.length} fichiers</b> enregistrés dans tes téléchargements.`);
+}
+function imageCotee() {
+  const k = 1, c = document.createElement("canvas"); c.width = IMG.width; c.height = IMG.height; const g = c.getContext("2d");
+  g.drawImage(IMG, 0, 0); const sv = vueT, sl = sel; vueT = { s: 1, x: 0, y: 0 }; sel = -1;
+  R.lignes.forEach(l => { g.lineCap = "round"; g.strokeStyle = l.cote ? "#7fc79a" : "#e8b44c"; g.lineWidth = 3; g.beginPath(); g.moveTo(l.x1, l.y1); g.lineTo(l.x2, l.y2); g.stroke();
+    const mm = metres(l); if (mm != null && (l.cote || long(l) > Math.max(IMG.width, IMG.height) * .06)) { const t = (l.cote ? "✓ " : R.redresse ? "" : "≈ ") + fmt(mm); g.font = "600 22px Barlow, sans-serif"; const w = g.measureText(t).width + 14, cx = (l.x1 + l.x2) / 2, cy = (l.y1 + l.y2) / 2; g.fillStyle = "rgba(15,42,29,.88)"; g.fillRect(cx - w / 2, cy - 15, w, 30); g.fillStyle = l.cote ? "#c9f0d6" : "#f6dc96"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(t, cx, cy + 1); } });
+  g.fillStyle = "rgba(15,42,29,.9)"; g.fillRect(0, c.height - 40, c.width, 40); g.fillStyle = "#e8b44c"; g.font = "20px Marcellus, Georgia, serif"; g.textAlign = "left"; g.textBaseline = "middle";
+  g.fillText("AGENCE NUMÉROBIS · " + R.nom + (R.notes.length ? " · " + R.notes.map(n => n.texte).join(" · ") : ""), 14, c.height - 20);
+  vueT = sv; sel = sl;
+  return new Promise(ok => c.toBlob(ok, "image/jpeg", .9));
+}
+function dxf() {
+  // DXF R12 en mètres (en-tête $INSUNITS = 6) : calques LIGNES et COTES ; lisible par ArchiCAD, SketchUp, QGIS, Blender
+  const H = IMG.height, L = ["0", "SECTION", "2", "HEADER", "9", "$ACADVER", "1", "AC1009", "9", "$INSUNITS", "70", "6", "0", "ENDSEC",
+    "0", "SECTION", "2", "TABLES", "0", "TABLE", "2", "LAYER", "70", "2",
+    "0", "LAYER", "2", "LIGNES", "70", "0", "62", "7", "6", "CONTINUOUS", "0", "LAYER", "2", "COTES", "70", "0", "62", "3", "6", "CONTINUOUS", "0", "ENDTAB", "0", "ENDSEC",
+    "0", "SECTION", "2", "ENTITIES"];
+  const X = x => (x * R.sx).toFixed(4), Y = y => ((H - y) * R.sy).toFixed(4);
+  R.lignes.forEach(l => { L.push("0", "LINE", "8", l.cote ? "COTES" : "LIGNES", "10", X(l.x1), "20", Y(l.y1), "30", "0", "11", X(l.x2), "21", Y(l.y2), "31", "0");
+    if (l.cote) L.push("0", "TEXT", "8", "COTES", "10", X((l.x1 + l.x2) / 2), "20", Y((l.y1 + l.y2) / 2), "30", "0", "40", "0.08", "1", fmt(l.cote)); });
+  L.push("0", "ENDSEC", "0", "EOF"); return L.join("\r\n");
+}
+function svgFacade() {
+  const W = IMG.width * R.sx, H = IMG.height * R.sy, k = 1000 / Math.max(W, H);
+  let s = `<svg xmlns="http://www.w3.org/2000/svg" width="${(W * 10).toFixed(1)}mm" height="${((H * k + 40) / k * 10).toFixed(1)}mm" viewBox="0 0 ${(W * k).toFixed(1)} ${(H * k + 40).toFixed(1)}"><rect width="100%" height="100%" fill="#fff"/><g stroke="#14110e" stroke-width="1.6" stroke-linecap="round">`;
+  R.lignes.forEach(l => s += `<line x1="${(l.x1 * R.sx * k).toFixed(1)}" y1="${(l.y1 * R.sy * k).toFixed(1)}" x2="${(l.x2 * R.sx * k).toFixed(1)}" y2="${(l.y2 * R.sy * k).toFixed(1)}"${l.cote ? ' stroke="#2c7a4b"' : ""}/>`);
+  s += `</g><g font-family="Barlow, sans-serif" font-size="13" fill="#2c7a4b" text-anchor="middle">`;
+  R.lignes.forEach(l => { const mm = metres(l); if (l.cote || long(l) > Math.max(IMG.width, IMG.height) * .1) s += `<text x="${((l.x1 + l.x2) / 2 * R.sx * k).toFixed(1)}" y="${((l.y1 + l.y2) / 2 * R.sy * k - 4).toFixed(1)}">${fmt(mm)}</text>`; });
+  s += `</g><text x="8" y="${(H * k + 26).toFixed(1)}" font-family="Marcellus, Georgia, serif" font-size="15" fill="#b8862d">AGENCE NUMÉROBIS · ${esc(R.nom)}${R.redresse ? "" : " · mesures approximatives (photo non redressée)"}</text></svg>`;
+  return s;
+}
+
+// ============================================================ commandes écrites ou dictées
+$("formCmd").onsubmit = e => { e.preventDefault(); const t = $("cmd").value.trim(); $("cmd").value = ""; if (t) executer(t); $("cmd").blur(); };
+function executer(t) {
+  const b = t.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "").trim();
+  if (/^(aide|\?|que sais-tu faire)/.test(b)) return dire("Je comprends : <b>photo</b> · <b>importe</b> (photo ou vidéo) · <b>cote 2,15</b> (sur la ligne choisie) · <b>note</b> … · <b>redresse</b> / <b>valide</b> · <b>trace</b> · <b>plus</b> ou <b>moins de lignes</b> · <b>supprime</b> · <b>annule</b> · <b>partage</b> · <b>nom</b> … · <b>photo</b> · <b>mes releves</b>. Tout autre texte devient une note.");
+  if (/^(photo|nouvelle photo|prends une photo)/.test(b)) return $("fichier").click();
+  if (/^(importe|import|galerie|video)/.test(b)) return $("importer").click();
+  if (/^(mes releves|releves|menu)/.test(b)) return panneauMenu();
+  if (!R) return dire("Prends d'abord une photo.");
+  const cote = b.replace(/^(la )?(cote|c|mesure|longueur)\s*(de|=|:)?\s*/, "");
+  if (lireCote(cote) != null && (b !== cote || /^[\d\s.,]+(mm|cm|m)?$/.test(b))) return poserCote(cote);
+  if (/^(redress|de face|vue de face)/.test(b)) return mode === "redresser" ? validerRedressement() : $("bRedresser").onclick();
+  if (/^(valide|ok|c.est bon)$/.test(b) && mode === "redresser") return validerRedressement();
+  if (/^trac/.test(b)) return $("bTracer").onclick();
+  if (/^plus de lignes/.test(b)) { R.sensibilite = Math.min(3, (R.sensibilite || 1) * 1.4); return detecter().then(sauver); }
+  if (/^moins de lignes/.test(b)) { R.sensibilite = Math.max(.4, (R.sensibilite || 1) / 1.4); return detecter().then(sauver); }
+  if (/^(supprime|efface)( la ligne)?$/.test(b)) return $("fSuppr").onclick();
+  if (/^(annule|retour)/.test(b)) { const h = historique.pop(); if (!h) return dire("Rien à annuler."); Object.assign(R, JSON.parse(h)); majEchelle(); sel = -1; fermerFiche(); sauver(); return dire("Annulé."); }
+  if (/^(partage|exporte|envoie)/.test(b)) return panneauExport();
+  if (/^nom\s+/.test(b)) { R.nom = t.replace(/^nom\s+/i, "").trim(); $("titre").textContent = R.nom; sauver(); return dire(`Relevé renommé <b>${esc(R.nom)}</b>.`); }
+  const texte = t.replace(/^note\s*:?\s*/i, "").trim(); if (!texte) return dire("Écris la note après « note ».");
+  memoriser(); R.notes.push({ texte, ligne: sel >= 0 ? sel : null, quand: Date.now() }); sauver();
+  dire(`Note ajoutée${sel >= 0 ? " à la ligne choisie" : ""} : <b>${esc(texte)}</b>.`);
+}
+
+// ============================================================ démarrage
+ouvrirBD();
+taille();
+setTimeout(() => chargerOpenCV().catch(() => {}), 1500);   // préchargé pendant que Charly cadre sa photo
+</script>
+<script>if("serviceWorker" in navigator&&location.protocol==="https:"){navigator.serviceWorker.register("sw.js").catch(()=>{})}</script></body></html>
