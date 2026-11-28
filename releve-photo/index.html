@@ -19,6 +19,7 @@ button{font:inherit;color:inherit;border:0;cursor:pointer}
 #app{position:fixed;inset:0;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px)}
 header{display:flex;align-items:center;gap:10px;padding:8px max(12px,env(safe-area-inset-left,0px)) 8px max(12px,env(safe-area-inset-right,0px));background:var(--jungle);border-bottom:1px solid #2c5a44}
 header img{width:34px;height:34px;border-radius:7px}
+#horsligne{background:#5a4a1c;color:#f6dc96;font:500 14px Barlow,sans-serif;text-align:center;padding:6px max(12px,env(safe-area-inset-left,0px));border-bottom:1px solid #8a7230}
 header h1{font:400 20px Marcellus,Georgia,serif;letter-spacing:1px;margin:0;color:var(--or);flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .modes{display:flex;background:var(--jungle-2);border-radius:20px;padding:3px}
 .modes button{padding:6px 12px;border-radius:17px;background:none;font:600 13px "Barlow Semi Condensed",sans-serif;letter-spacing:.5px;color:var(--doux)}
@@ -86,6 +87,7 @@ footer{background:var(--jungle);border-top:1px solid #2c5a44;padding:8px max(10p
     <button class="rond" id="bMenu" aria-label="Menu">≡</button>
   </header>
 
+  <div id="horsligne" hidden><span id="hlTexte"></span><span id="hlEnvoi"></span></div>
   <div id="scene">
     <canvas id="vue"></canvas>
     <div id="accueil">
@@ -104,7 +106,7 @@ footer{background:var(--jungle);border-top:1px solid #2c5a44;padding:8px max(10p
       <button id="bLignes">≡ Lignes</button>
       <button id="bFacade" hidden>📐 Façade cotée</button>
       <button id="b3D" hidden>🧊 3D</button>
-      <button id="bExport">⇩ Partager</button>
+      <button id="bExport">📨 Envoyer</button>
     </div>
     <div id="pad" hidden>
       <span></span><button data-d="0,-1" aria-label="Monter">▲</button><span></span>
@@ -132,7 +134,7 @@ footer{background:var(--jungle);border-top:1px solid #2c5a44;padding:8px max(10p
   </footer>
 </div>
 <input type="file" id="fichier" accept="image/*" capture="environment" hidden>
-<input type="file" id="importer" accept="image/*,video/*" hidden>
+<input type="file" id="importer" accept="image/*,video/*,.json,application/json" hidden>
 
 <script>
 "use strict";
@@ -147,11 +149,16 @@ let fin = false, aimant = false, cible = null, accroche = null;   // l'aimant es
 let vue = "photo", actif = 0, actifBout = 0, minuteLoupe = null;   // viseur de précision : mode fin, aimant, point visé
 const C = $("vue"), ctx = C.getContext("2d");
 
+// ============================================================ version : téléphone seul (GitHub) ou ouverte dans Claude
+const BOITE = false;                 // vrai dans la version ouverte dans Claude : bouton « Envoyer à Numérobis »
+const LIEN_CLAUDE = "https://claude.ai/artifact/Sh1rFWDrSzguHoSDNbdTZv";              // adresse de la version Claude, pour y passer depuis le téléphone
+const SRC_OPENCV = "opencv.js", SRC_THREE = "three.min.js";
+
 // ============================================================ OpenCV (chargé en arrière-plan)
 function chargerOpenCV() {
   return new Promise((ok, ko) => {
     if (cv_.pret) return ok();
-    const s = document.createElement("script"); s.src = "opencv.js"; s.async = true;
+    const s = document.createElement("script"); s.src = SRC_OPENCV; s.crossOrigin = "anonymous"; s.async = true;
     s.onload = () => {
       const fin = () => { cv_.pret = true; ok(); };
       if (window.cv && window.cv.Mat) fin();
@@ -197,6 +204,7 @@ $("bPhoto").onclick = () => $("fichier").click();
 $("bImport").onclick = () => $("importer").click();
 $("fichier").onchange = $("importer").onchange = async e => {
   const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  if (/\.json$/i.test(f.name) || f.type === "application/json") return importerReleve(f);
   if (/^video\//.test(f.type) || /\.(mp4|mov|m4v|webm|3gp)$/i.test(f.name)) return choisirImageVideo(f);
   attente("J'ouvre la photo…");
   const bmp = await createImageBitmap(f).catch(() => null);
@@ -239,47 +247,160 @@ function choisirImageVideo(f) {
 function montrerTravail() { $("accueil").hidden = true; $("outils").hidden = false; $("titre").textContent = R.nom; majOutils(); }
 
 // ============================================================ reconnaissance des lignes
+// Détecteur de segments de droites « LSD » (R. Grompone von Gioi, J. Jakubowicz, J.-M. Morel, G. Randall, 2010),
+// réécrit d'après la publication pour l'Agence Numérobis. Un segment n'est gardé que si le hasard ne peut pas
+// l'expliquer (contrôle « a contrario ») : peu de lignes inventées, et les bords faibles sont quand même trouvés.
+(function (glob) {
+  const PI = Math.PI, DEUXPI = 2 * PI, TROISDEMIPI = 1.5 * PI, LN10 = Math.LN10, NOTDEF = -1024;
+  function lgamma(x) { // Lanczos
+    const q = [75122.6331530, 80916.6278952, 36308.2951477, 8687.24529705, 1168.92649479, 83.8676043424, 2.50662827511];
+    let a = (x + 0.5) * Math.log(x + 5.5) - (x + 5.5), b = 0;
+    for (let n = 0; n < 7; n++) { a -= Math.log(x + n); b += q[n] * Math.pow(x, n); }
+    return a + Math.log(b);
+  }
+  function nfa(n, k, p, logNT) {
+    if (n === 0 || k === 0) return -logNT;
+    if (n === k) return -logNT - n * Math.log10(p);
+    const pt = p / (1 - p);
+    const l1 = lgamma(n + 1) - lgamma(k + 1) - lgamma(n - k + 1) + k * Math.log(p) + (n - k) * Math.log(1 - p);
+    let term = Math.exp(l1);
+    if (term === 0) return k > n * p ? -l1 / LN10 - logNT : -logNT;
+    let tail = term;
+    for (let i = k + 1; i <= n; i++) {
+      const bt = (n - i + 1) / i * pt; term *= bt; tail += term;
+      if (bt < 1) { const err = term * ((1 - Math.pow(bt, n - i + 1)) / (1 - bt) - 1); if (err < 0.1 * Math.abs(-Math.log10(tail) - logNT) * tail) break; }
+    }
+    return -Math.log10(tail) - logNT;
+  }
+  const angDiff = (a, b) => { let d = a - b; while (d <= -PI) d += DEUXPI; while (d > PI) d -= DEUXPI; return Math.abs(d); };
+
+  // gris : Float32Array (W*H), valeurs 0..255. Renvoie [{x1,y1,x2,y2,largeur,force}]
+  function lsd(gris, W, H, opt = {}) {
+    const ech = opt.echelle ?? 0.8, tau = (opt.angle ?? 22.5) * PI / 180, q = opt.q ?? 2, densMin = opt.densite ?? 0.7, eps = opt.eps ?? 0;
+    // 1) flou gaussien puis réduction (supprime l'effet d'escalier des pixels)
+    let img = gris, w = W, h = H;
+    if (ech < 1) {
+      const sig = 0.6 / ech, r = Math.ceil(3 * sig), ker = []; let s = 0;
+      for (let i = -r; i <= r; i++) { const v = Math.exp(-i * i / (2 * sig * sig)); ker.push(v); s += v; } for (let i = 0; i < ker.length; i++) ker[i] /= s;
+      const tmp = new Float32Array(W * H), flou = new Float32Array(W * H);
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { let v = 0; for (let i = -r; i <= r; i++) { let xx = x + i; xx = xx < 0 ? -xx : xx >= W ? 2 * W - xx - 2 : xx; v += ker[i + r] * gris[y * W + xx]; } tmp[y * W + x] = v; }
+      for (let y = 0; y < H; y++) for (let x = 0; x < W; x++) { let v = 0; for (let i = -r; i <= r; i++) { let yy = y + i; yy = yy < 0 ? -yy : yy >= H ? 2 * H - yy - 2 : yy; v += ker[i + r] * tmp[yy * W + x]; } flou[y * W + x] = v; }
+      w = Math.floor(W * ech); h = Math.floor(H * ech); img = new Float32Array(w * h);
+      for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) { const X = Math.min(W - 1, Math.round(x / ech)), Y = Math.min(H - 1, Math.round(y / ech)); img[y * w + x] = flou[Y * W + X]; }
+    }
+    // 2) gradient et angle des lignes de niveau
+    const N = w * h, ang = new Float32Array(N).fill(NOTDEF), mag = new Float32Array(N), seuil = q / Math.sin(tau);
+    let maxG = 0;
+    for (let y = 0; y < h - 1; y++) for (let x = 0; x < w - 1; x++) {
+      const i = y * w + x, A = img[i + w + 1] - img[i], B = img[i + 1] - img[i + w];
+      const gx = A + B, gy = A - B, g = Math.sqrt((gx * gx + gy * gy) / 4);
+      mag[i] = g; if (g > seuil) { ang[i] = Math.atan2(gx, -gy); if (g > maxG) maxG = g; }
+    }
+    // 3) ordre des graines : du bord le plus fort au plus faible
+    const NB = 1024, cases = new Int32Array(NB + 1), ordre = new Int32Array(N); let nDef = 0;
+    for (let i = 0; i < N; i++) if (ang[i] !== NOTDEF) { cases[Math.min(NB - 1, Math.floor(mag[i] * NB / maxG))]++; nDef++; }
+    for (let b = NB - 1, acc = 0; b >= 0; b--) { const c = cases[b]; cases[b] = acc; acc += c; }
+    for (let i = 0; i < N; i++) if (ang[i] !== NOTDEF) ordre[cases[Math.min(NB - 1, Math.floor(mag[i] * NB / maxG))]++] = i;
+    const logNT = 5 * (Math.log10(w) + Math.log10(h)) / 2 + Math.log10(11), p = tau / PI;
+    const minReg = Math.floor(-logNT / Math.log10(p));
+    const pris = new Uint8Array(N), reg = new Int32Array(N), sorties = [];
+    const aligne = (i, a, prec) => { const t = ang[i]; if (t === NOTDEF) return false; let d = a - t; if (d < 0) d = -d; if (d > TROISDEMIPI) { d -= DEUXPI; if (d < 0) d = -d; } return d <= prec; };
+
+    function rectangle(n, regAng, prec) {
+      let sx = 0, sy = 0, sw = 0;
+      for (let k = 0; k < n; k++) { const i = reg[k], m = mag[i]; sx += m * (i % w); sy += m * ((i / w) | 0); sw += m; }
+      const cx = sx / sw, cy = sy / sw; let Ixx = 0, Iyy = 0, Ixy = 0;
+      for (let k = 0; k < n; k++) { const i = reg[k], m = mag[i], dx = i % w - cx, dy = ((i / w) | 0) - cy; Ixx += m * dy * dy; Iyy += m * dx * dx; Ixy -= m * dx * dy; }
+      const lam = 0.5 * (Ixx + Iyy - Math.sqrt((Ixx - Iyy) * (Ixx - Iyy) + 4 * Ixy * Ixy));
+      let th = Math.abs(Ixx) > Math.abs(Iyy) ? Math.atan2(lam - Ixx, Ixy) : Math.atan2(Ixy, lam - Iyy);
+      if (angDiff(th, regAng) > prec) th += PI;
+      const dx = Math.cos(th), dy = Math.sin(th); let l0 = 1e9, l1 = -1e9, w0 = 1e9, w1 = -1e9;
+      for (let k = 0; k < n; k++) { const i = reg[k], X = i % w - cx, Y = ((i / w) | 0) - cy, l = X * dx + Y * dy, ww = -X * dy + Y * dx; if (l < l0) l0 = l; if (l > l1) l1 = l; if (ww < w0) w0 = ww; if (ww > w1) w1 = ww; }
+      const wc = (w0 + w1) / 2;
+      return { x1: cx + l0 * dx - wc * dy, y1: cy + l0 * dy + wc * dx, x2: cx + l1 * dx - wc * dy, y2: cy + l1 * dy + wc * dx, larg: Math.max(1, w1 - w0), th, dx, dy, prec, p: prec / PI };
+    }
+    function nfaRect(r) {
+      const half = r.larg / 2, L = Math.hypot(r.x2 - r.x1, r.y2 - r.y1);
+      const xs = [r.x1 - r.dy * half, r.x1 + r.dy * half, r.x2 - r.dy * half, r.x2 + r.dy * half], ys = [r.y1 + r.dx * half, r.y1 - r.dx * half, r.y2 + r.dx * half, r.y2 - r.dx * half];
+      const x0 = Math.max(0, Math.floor(Math.min(...xs))), x1 = Math.min(w - 1, Math.ceil(Math.max(...xs))), y0 = Math.max(0, Math.floor(Math.min(...ys))), y1 = Math.min(h - 1, Math.ceil(Math.max(...ys)));
+      let n = 0, k = 0;
+      for (let y = y0; y <= y1; y++) for (let x = x0; x <= x1; x++) {
+        const X = x - r.x1, Y = y - r.y1, l = X * r.dx + Y * r.dy, ww = -X * r.dy + Y * r.dx;
+        if (l < -0.5 || l > L + 0.5 || ww < -half || ww > half) continue;
+        n++; if (aligne(y * w + x, r.th, r.prec)) k++;
+      }
+      return nfa(n, k, r.p, logNT);
+    }
+    for (let o = 0; o < nDef; o++) {
+      const s = ordre[o]; if (pris[s] || ang[s] === NOTDEF) continue;
+      // 4) croissance de région : pixels voisins qui ont la même orientation
+      let n = 1; reg[0] = s; pris[s] = 1; let regAng = ang[s], sdx = Math.cos(regAng), sdy = Math.sin(regAng);
+      for (let k = 0; k < n; k++) {
+        const i = reg[k], x = i % w, y = (i / w) | 0;
+        for (let yy = y - 1; yy <= y + 1; yy++) for (let xx = x - 1; xx <= x + 1; xx++) {
+          if (xx < 0 || yy < 0 || xx >= w || yy >= h) continue; const j = yy * w + xx;
+          if (!pris[j] && aligne(j, regAng, tau)) { pris[j] = 1; reg[n++] = j; sdx += Math.cos(ang[j]); sdy += Math.sin(ang[j]); regAng = Math.atan2(sdy, sdx); }
+        }
+      }
+      if (n < minReg) continue;
+      let r = rectangle(n, regAng, tau);
+      // 5) région trop étalée (coin, courbe) : on la resserre autour de la graine
+      let dens = n / (Math.hypot(r.x2 - r.x1, r.y2 - r.y1) * r.larg), ok = true;
+      if (dens < densMin) {
+        const sx = s % w, sy = (s / w) | 0; let rad = Math.max(Math.hypot(sx - r.x1, sy - r.y1), Math.hypot(sx - r.x2, sy - r.y2));
+        while (dens < densMin) {
+          rad *= 0.75; let m = 0;
+          for (let k = 0; k < n; k++) { const i = reg[k]; if (Math.hypot(i % w - sx, ((i / w) | 0) - sy) <= rad) reg[m++] = i; else pris[i] = 0; }
+          n = m; if (n < 2) { ok = false; break; }
+          r = rectangle(n, regAng, tau); dens = n / (Math.hypot(r.x2 - r.x1, r.y2 - r.y1) * r.larg);
+        }
+        if (!ok) continue;
+      }
+      // 6) contrôle a contrario : le segment est-il plus probable qu'un effet du hasard ?
+      let lnfa = nfaRect(r);
+      if (lnfa <= eps) { // essai d'un rectangle plus fin avant d'abandonner
+        for (let t = 0; t < 4 && r.larg > 1.5; t++) { const r2 = { ...r, larg: r.larg - 0.5 }; const v = nfaRect(r2); if (v > lnfa) { r = r2; lnfa = v; } }
+      }
+      if (lnfa <= eps) continue;
+      const k = 1 / ech;
+      sorties.push({ x1: (r.x1 + 0.5) * k, y1: (r.y1 + 0.5) * k, x2: (r.x2 + 0.5) * k, y2: (r.y2 + 0.5) * k, largeur: r.larg * k, force: lnfa });
+    }
+    return sorties;
+  }
+  glob.lsd = lsd;
+})(window);
+
 async function detecter() {
   attente("Je décalque les lignes de la photo…");
-  try { await chargerOpenCV(); } catch (e) { attente(""); dire("L'outil de reconnaissance n'est pas chargé (<b>opencv.js</b>). Ouvre l'appli une fois avec Internet pour qu'elle le garde. Tu peux tracer les lignes à la main avec <b>✎ Tracer</b>."); return; }
   await new Promise(r => setTimeout(r, 30));
-  const cv = window.cv, W = IMG.width, H = IMG.height, m = Math.max(W, H), sens = R.sensibilite || 1;
-  const src = cv.imread(IMG), g = new cv.Mat(), e = new cv.Mat(), gx = new cv.Mat(), gy = new cv.Mat(), mag = new cv.Mat(), cs = new cv.MatVector(), hier = new cv.Mat();
+  const W = IMG.width, H = IMG.height, m = Math.max(W, H), sens = R.sensibilite || 1;
   try {
-    // 1) contours nets de la photo (seuils réglés d'après la photo elle-même)
-    cv.cvtColor(src, g, cv.COLOR_RGBA2GRAY); cv.GaussianBlur(g, g, new cv.Size(3, 3), 0);
-    cv.Sobel(g, gx, cv.CV_32F, 1, 0); cv.Sobel(g, gy, cv.CV_32F, 0, 1); cv.magnitude(gx, gy, mag);
-    const d = mag.data32F, ech = []; for (let i = 0; i < d.length; i += 7) ech.push(d[i]); ech.sort((x, y) => x - y);
-    const hi = Math.max(30, ech[Math.floor(ech.length * Math.max(0.5, 1 - 0.10 * sens))] * 0.5), lo = hi * 0.4;
-    cv.Canny(g, e, lo, hi, 3, true);
-    // 2) on suit chaque contour et on le découpe en traits droits : une ligne n'existe que si elle suit un vrai bord de la photo
-    cv.findContours(e, cs, hier, cv.RETR_LIST, cv.CHAIN_APPROX_NONE);
-    const minL = Math.max(8, m * 0.013 / Math.sqrt(sens)), eps = Math.max(1, m * 0.0009); let seg = [];
-    for (let i = 0; i < cs.size(); i++) {
-      const c = cs.get(i);
-      if (c.rows >= minL) {
-        const ap = new cv.Mat(); cv.approxPolyDP(c, ap, eps, false); const q = ap.data32S;
-        for (let k = 0; k + 3 < q.length; k += 2) { const t = { x1: q[k], y1: q[k + 1], x2: q[k + 2], y2: q[k + 3] }; if (long(t) >= minL) seg.push(t); }
-        ap.delete();
-      }
-      c.delete();
-    }
+    // 1) filtre « dessin technique » : la photo en niveaux de gris, contraste local égalisé pour faire ressortir les bords faibles
+    const c = document.createElement("canvas"); c.width = W; c.height = H; const x = c.getContext("2d"); x.drawImage(IMG, 0, 0);
+    const d = x.getImageData(0, 0, W, H).data, g = new Float32Array(W * H);
+    for (let i = 0; i < W * H; i++) g[i] = 0.299 * d[4 * i] + 0.587 * d[4 * i + 1] + 0.114 * d[4 * i + 2];
+    const clip = sens < 0.8 ? 0 : sens < 1.3 ? 2 : 3;
+    if (clip) { try { await chargerOpenCV(); const cv = window.cv, M = new cv.Mat(H, W, cv.CV_8UC1); M.data.set(Uint8Array.from(g, v => v));
+      const cl = new cv.CLAHE(clip, new cv.Size(8, 8)); cl.apply(M, M); cl.delete(); for (let i = 0; i < W * H; i++) g[i] = M.data[i]; M.delete(); } catch (e) { /* sans opencv : décalque quand même, sans le filtre de contraste */ } }
+    // 2) détecteur de segments LSD : chaque trait suit un vrai bord ; ce que le hasard expliquerait est écarté
+    let seg = lsd(g, W, H, { echelle: 1 });
     // 3) les morceaux d'une même ligne sont réunis ; les traits trop courts sont écartés
-    seg = fusionner(seg, m).filter(l => long(l) >= minL * 1.2).sort((x, y) => long(y) - long(x)).slice(0, Math.round(500 * sens));
+    const minL = m * 0.008 / Math.sqrt(sens);
+    seg = fusionner(seg.map(t => ({ x1: t.x1, y1: t.y1, x2: t.x2, y2: t.y2 })), m).filter(l => long(l) >= minL).sort((a, b) => long(b) - long(a)).slice(0, Math.round(1800 * sens));
     memoriser();
     const gardees = R.lignes.filter(l => l.cote || l.main);       // on garde les lignes cotées ou tracées à la main
-    R.lignes = gardees.concat(seg.map(t => ({ ...t })));
+    R.lignes = gardees.concat(seg.map(t => ({ x1: +t.x1.toFixed(1), y1: +t.y1.toFixed(1), x2: +t.x2.toFixed(1), y2: +t.y2.toFixed(1) })));
     sel = -1; dessiner();
     dire(`J'ai décalqué <b>${seg.length} lignes</b>. Touche celle dont tu connais la longueur et donne sa cote. ` +
          (R.redresse ? "" : "Façade prise de biais ? Commence par <b>⟂ Redresser</b>. ") + "Trop ou pas assez de lignes : <b>≡ Lignes</b>.");
   } catch (err) { dire("Le décalque a échoué : " + err.message); }
-  finally { [src, g, e, gx, gy, mag, hier].forEach(x => x.delete()); cs.delete(); attente(""); }
+  finally { attente(""); }
 }
 const long = l => Math.hypot(l.x2 - l.x1, l.y2 - l.y1);
 const angle = l => { let a = Math.atan2(l.y2 - l.y1, l.x2 - l.x1); if (a < 0) a += Math.PI; if (a >= Math.PI) a -= Math.PI; return a; };
 function fusionner(seg, m) {
   // regroupe les morceaux d'une même ligne (même direction, même droite, bouts proches)
-  const tolA = 2 * Math.PI / 180, tolD = Math.max(2, m * 0.0025), tolG = m * 0.008;
+  const tolA = 2 * Math.PI / 180, tolD = Math.max(2, m * 0.0025), tolG = m * 0.015;
   seg.sort((a, b) => long(b) - long(a)); const out = [];
   for (const s of seg) {
     let pris = false;
@@ -402,7 +523,7 @@ function dessiner() {
   else {
     ctx.drawImage(IMG, vueT.x, vueT.y, IMG.width * vueT.s, IMG.height * vueT.s);
     // calque presque transparent par-dessus la photo, comme un papier calque
-    ctx.fillStyle = mode === "redresser" ? "rgba(10,28,19,.30)" : "rgba(255,255,255," + (R.voile ?? 0.45) + ")"; ctx.fillRect(vueT.x, vueT.y, IMG.width * vueT.s, IMG.height * vueT.s);
+    ctx.fillStyle = mode === "redresser" ? "rgba(10,28,19,.30)" : "rgba(255,255,255," + (R.voile ?? 0.7) + ")"; ctx.fillRect(vueT.x, vueT.y, IMG.width * vueT.s, IMG.height * vueT.s);
   }
   ctx.lineCap = "round";
   const epais = Math.min(1.1, Math.max(0.55, vueT.s * 2.2));        // traits fins, encore plus fins quand la photo est vue en entier
@@ -638,7 +759,7 @@ $("mVideo").onclick = () => dire("Le <b>relevé vidéo</b> arrive à l'étape 3 
 $("mPhoto").onclick = () => dire("Mode photo.");
 
 // ============================================================ vue 3D : la façade en volume, à faire tourner au doigt
-function chargerThree() { return new Promise((ok, ko) => { if (window.THREE) return ok(); const s = document.createElement("script"); s.src = "three.min.js"; s.onload = ok; s.onerror = () => ko(new Error("three.min.js introuvable")); document.head.appendChild(s); }); }
+function chargerThree() { return new Promise((ok, ko) => { if (window.THREE) return ok(); const s = document.createElement("script"); s.src = SRC_THREE; s.onload = ok; s.onerror = () => ko(new Error("three.min.js introuvable")); document.head.appendChild(s); }); }
 async function ouvrir3D() {
   if (!R.sx) return dire("Pose d'abord une cote.");
   try { await chargerThree(); } catch (e) { return dire("La 3D n'est pas chargée : ouvre l'appli une fois avec Internet."); }
@@ -668,6 +789,23 @@ async function ouvrir3D() {
 // ============================================================ dictée (micro)
 (function () {
   const SR = window.SpeechRecognition || window.webkitSpeechRecognition; const b = $("bMicro");
+  if (BOITE) {
+    // version Claude : la dictée de Claude (le micro de Chrome est bloqué dans cette fenêtre)
+    let D = null, actif = false, texte = "";
+    (window.claude ? claude.use("dictation") : Promise.resolve(null)).then(d => { D = d; if (!D) return;
+      D.onPartial(({ text }) => { $("cmd").value = (texte + " " + text).trim(); });
+      D.onFinal(({ text }) => { texte = (texte + " " + text).trim(); $("cmd").value = texte; });
+      D.onState(({ state }) => { actif = state === "listening" || state === "starting"; b.classList.toggle("ecoute", actif);
+        if (state === "idle" && texte) { const t = texte; texte = ""; $("cmd").value = ""; executer(t); } });
+    }).catch(() => {});
+    b.onclick = () => {
+      if (!D) return dire("La dictée n'est pas disponible ici : utilise le <b>micro du clavier</b>.");
+      if (actif) { D.stop().catch(() => {}); return; }
+      texte = ""; dire("Je t'écoute… touche 🎤 quand tu as fini.");
+      D.start({ language: "fr-FR" }).catch(e => { if (e && e.code === "not_granted") dire("Dictée refusée : le <b>micro du clavier</b> reste possible."); else dire("La dictée n'a pas démarré : réessaie."); });
+    };
+    return;
+  }
   if (!SR) { b.onclick = () => dire("La dictée n'est pas disponible dans ce navigateur : utilise le <b>micro du clavier</b>."); return; }
   let rec = null;
   b.onclick = () => {
@@ -719,11 +857,16 @@ function panneauLignes() {
   };
 }
 function panneauExport() {
-  panneau(`<h2>Partager le relevé</h2><p>Le fichier part seulement là où tu le choisis (toi, le bureau…). Rien n'est envoyé tout seul.</p>
+  const env = R.envoi ? ({ en_attente: "⏳ en attente du réseau", envoye: "✓ envoyé, en route vers le PC", recu: "✓ bien reçu par Numérobis" })[R.envoi.etat] || "" : "";
+  panneau(`<h2>Envoyer le relevé</h2>
+    <button class="gros" id="eNum" style="width:100%;justify-content:center;margin-bottom:6px">📨 Envoyer à Numérobis</button>
+    <p style="font-size:13px;margin:0 0 14px">${env ? "<b>" + env + "</b>" : "Il range le relevé sur le PC du bureau et te propose de l'ouvrir dans le bon logiciel."}</p>
+    <p>Ou partager un fichier là où tu le choisis :</p>
     <div class="choix"><button id="eImg">🖼 Image cotée<small>JPEG de la photo et des cotes</small></button><button id="eDxf" ${R.sx ? "" : "disabled"}>📐 Plan DXF<small>${R.sx ? "Lignes en mètres (ArchiCAD)" : "Pose d'abord une cote"}</small></button>
     <button id="eSvg" ${R.sx ? "" : "disabled"}>✏️ Façade SVG<small>${R.sx ? "Trait coté à l'échelle 1/100 (Blender, dessin)" : "Pose d'abord une cote"}</small></button><button id="eObj" ${R.sx ? "" : "disabled"}>🧊 Façade 3D<small>${R.sx ? "OBJ + photo plaquée (SketchUp, Blender, ArchiCAD)" : "Pose d'abord une cote"}</small></button>
     <button id="eJson">🗂 Relevé complet<small>Pour Numérobis (.json)</small></button><button id="eTout" ${R.sx ? "" : "disabled"}>📦 Tout<small>Tous les fichiers d'un coup</small></button></div>
     <p style="font-size:13px;margin-top:12px">DXF et OBJ sont en <b>mètres</b>. Dans ArchiCAD : Fichier ▸ Ouvrir/Joindre le DXF ; dans SketchUp : Importer (unités : mètres).</p>`);
+  $("eNum").onclick = () => envoyerNumerobis();
   $("eImg").onclick = () => partager(nomFichier("jpg"), imageCotee(), "image/jpeg");
   $("eDxf").onclick = () => R.sx && partager(nomFichier("dxf"), new Blob([dxf()], { type: "application/dxf" }), "application/dxf");
   $("eSvg").onclick = () => R.sx && partager(nomFichier("svg"), new Blob([svgFacade()], { type: "image/svg+xml" }), "image/svg+xml");
@@ -734,10 +877,18 @@ function panneauExport() {
 }
 const nomFichier = ext => R.nom.normalize("NFD").replace(/[̀-ͯ]/g, "").replace(/[^\w]+/g, "_").replace(/^_|_$/g, "") + "." + ext;
 const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+async function enregistrer(fs) {
+  // version Claude : les fichiers passent par l'enregistrement proposé par Claude (le téléchargement direct y est bloqué)
+  if (!BOITE || !window.claude) return false;
+  const dl = await claude.use("downloads"); if (!dl) return false;
+  let n = 0; for (const f of fs) { try { await dl.save({ filename: f.name, data: f }); n++; } catch (e) { if (e && (e.code === "unavailable" || e.code === "host_unavailable")) { dire("Enregistrer un fichier n'est pas possible dans cette appli : utilise plutôt <b>📨 Envoyer à Numérobis</b>."); $("panneau").hidden = true; return true; } } }
+  $("panneau").hidden = true; dire(n ? `<b>${n} fichier${n > 1 ? "s" : ""}</b> enregistré${n > 1 ? "s" : ""}.` : "Rien n'a été enregistré."); return true;
+}
 async function partager(nom, blob, type) {
   if (blob instanceof Promise) blob = await blob;
   const f = new File([blob], nom, { type });
   try { if (navigator.canShare && navigator.canShare({ files: [f] })) { await navigator.share({ files: [f], title: nom }); $("panneau").hidden = true; return dire(`<b>${esc(nom)}</b> partagé.`); } } catch (e) { if (e.name === "AbortError") return; }
+  if (await enregistrer([f])) return;
   const a = document.createElement("a"); a.href = URL.createObjectURL(f); a.download = nom; document.body.appendChild(a); a.click(); a.remove();
   $("panneau").hidden = true; dire(`<b>${esc(nom)}</b> enregistré dans tes téléchargements.`);
 }
@@ -755,14 +906,17 @@ async function fichiers3D() {
 }
 async function partagerPlusieurs(fs) {
   try { if (navigator.canShare && navigator.canShare({ files: fs })) { await navigator.share({ files: fs, title: R.nom }); $("panneau").hidden = true; return dire(`<b>${fs.length} fichiers</b> partagés.`); } } catch (e) { if (e.name === "AbortError") return; }
+  if (await enregistrer(fs)) return;
   for (const f of fs) { const a = document.createElement("a"); a.href = URL.createObjectURL(f); a.download = f.name; document.body.appendChild(a); a.click(); a.remove(); await new Promise(r => setTimeout(r, 350)); }
   $("panneau").hidden = true; dire(`<b>${fs.length} fichiers</b> enregistrés dans tes téléchargements.`);
 }
 function imageCotee() {
   const k = 1, c = document.createElement("canvas"); c.width = IMG.width; c.height = IMG.height; const g = c.getContext("2d");
   g.drawImage(IMG, 0, 0); const sv = vueT, sl = sel; vueT = { s: 1, x: 0, y: 0 }; sel = -1;
-  R.lignes.forEach(l => { g.lineCap = "round"; g.strokeStyle = l.cote ? "#7fc79a" : "#e8b44c"; g.lineWidth = 3; g.beginPath(); g.moveTo(l.x1, l.y1); g.lineTo(l.x2, l.y2); g.stroke();
-    const mm = metres(l); if (mm != null && (l.cote || long(l) > Math.max(IMG.width, IMG.height) * .06)) { const t = (l.cote ? "✓ " : R.redresse ? "" : "≈ ") + fmt(mm); g.font = "600 22px Barlow, sans-serif"; const w = g.measureText(t).width + 14, cx = (l.x1 + l.x2) / 2, cy = (l.y1 + l.y2) / 2; g.fillStyle = "rgba(15,42,29,.88)"; g.fillRect(cx - w / 2, cy - 15, w, 30); g.fillStyle = l.cote ? "#c9f0d6" : "#f6dc96"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(t, cx, cy + 1); } });
+  g.fillStyle = "rgba(255,255,255," + (R.voile ?? 0.7) + ")"; g.fillRect(0, 0, c.width, c.height); g.lineCap = "round";
+  R.lignes.forEach(l => { if (l.cote) return; g.strokeStyle = "#14110e"; g.lineWidth = 1.3; g.beginPath(); g.moveTo(l.x1, l.y1); g.lineTo(l.x2, l.y2); g.stroke(); });
+  R.lignes.forEach(l => { if (l.cote) { g.strokeStyle = "#2c7a4b"; g.lineWidth = 3; g.beginPath(); g.moveTo(l.x1, l.y1); g.lineTo(l.x2, l.y2); g.stroke(); }
+    const mm = metres(l); if (mm != null && (l.cote || long(l) > Math.max(IMG.width, IMG.height) * .15)) { const t = (l.cote ? "✓ " : R.redresse ? "" : "≈ ") + fmt(mm); g.font = "600 22px Barlow, sans-serif"; const w = g.measureText(t).width + 14, cx = (l.x1 + l.x2) / 2, cy = (l.y1 + l.y2) / 2; g.fillStyle = "rgba(15,42,29,.88)"; g.fillRect(cx - w / 2, cy - 15, w, 30); g.fillStyle = l.cote ? "#c9f0d6" : "#f6dc96"; g.textAlign = "center"; g.textBaseline = "middle"; g.fillText(t, cx, cy + 1); } });
   g.fillStyle = "rgba(15,42,29,.9)"; g.fillRect(0, c.height - 40, c.width, 40); g.fillStyle = "#e8b44c"; g.font = "20px Marcellus, Georgia, serif"; g.textAlign = "left"; g.textBaseline = "middle";
   g.fillText("AGENCE NUMÉROBIS · " + R.nom + (R.notes.length ? " · " + R.notes.map(n => n.texte).join(" · ") : ""), 14, c.height - 20);
   vueT = sv; sel = sl;
@@ -807,6 +961,7 @@ function executer(t) {
   if (/^moins de lignes/.test(b)) { R.sensibilite = Math.max(.4, (R.sensibilite || 1) / 1.4); return detecter().then(sauver); }
   if (/^(supprime|efface)( la ligne)?$/.test(b)) return $("fSuppr").onclick();
   if (/^(annule|retour)/.test(b)) { const h = historique.pop(); if (!h) return dire("Rien à annuler."); Object.assign(R, JSON.parse(h)); majEchelle(); sel = -1; fermerFiche(); sauver(); return dire("Annulé."); }
+  if (/^envoie.*num[ée]robis/.test(b)) return envoyerNumerobis();
   if (/^(partage|exporte|envoie)/.test(b)) return panneauExport();
   if (/^nom\s+/.test(b)) { R.nom = t.replace(/^nom\s+/i, "").trim(); $("titre").textContent = R.nom; sauver(); return dire(`Relevé renommé <b>${esc(R.nom)}</b>.`); }
   const texte = t.replace(/^note\s*:?\s*/i, "").trim(); if (!texte) return dire("Écris la note après « note ».");
@@ -814,8 +969,84 @@ function executer(t) {
   dire(`Note ajoutée${sel >= 0 ? " à la ligne choisie" : ""} : <b>${esc(texte)}</b>.`);
 }
 
+// ============================================================ envoi à Numérobis (boîte d'envoi de la version Claude)
+async function importerReleve(f) {
+  try {
+    const r = JSON.parse(await f.text()); if (r.format !== "releve_photo_numerobis_1" || !r.image) throw new Error("format");
+    delete r.format; delete r.unites; if (await bd("lire", r.id)) r.id = "r" + Date.now(); r.envoi = null; r.maj = Date.now();
+    await bd("ecrire", r); await ouvrirReleve(r.id); setTimeout(() => dire(`Relevé <b>${esc(r.nom)}</b> importé.`), 400);
+  } catch (e) { dire("Ce fichier n'est pas un relevé de l'appli (format attendu : 🗂 Relevé complet)."); }
+}
+function imageDe(r) { return new Promise((ok, ko) => { const im = new Image(); im.onload = () => { const c = document.createElement("canvas"); c.width = im.width; c.height = im.height; c.getContext("2d").drawImage(im, 0, 0); ok(c); }; im.onerror = ko; im.src = r.image; }); }
+async function paquet(r) {
+  // les mêmes fichiers que « Partager », fabriqués pour un relevé en attente (même s'il n'est pas ouvert à l'écran)
+  const sR = R, sI = IMG;
+  try {
+    R = r; IMG = await imageDe(r);
+    const fs = [new File([await imageCotee()], nomFichier("jpg"), { type: "image/jpeg" })];
+    if (R.sx) fs.push(new File([dxf()], nomFichier("dxf"), { type: "text/plain" }), new File([svgFacade()], nomFichier("svg"), { type: "image/svg+xml" }), ...(await fichiers3D()));
+    fs.push(new File([jsonReleve()], nomFichier("json"), { type: "application/json" }));
+    return fs;
+  } finally { R = sR; IMG = sI; }
+}
+async function envoyerNumerobis() {
+  if (!R) return dire("Ouvre d'abord un relevé.");
+  if (!BOITE) {
+    return panneau(`<h2>Envoyer à Numérobis</h2><p>L'envoi direct se fait depuis la <b>version de l'appli ouverte dans Claude</b> : elle dépose le relevé dans ta boîte d'envoi, et Numérobis le range sur le PC.</p>
+      ${LIEN_CLAUDE ? `<p><a class="btn" href="${LIEN_CLAUDE}" target="_blank" rel="noopener" style="display:inline-block;text-decoration:none">Ouvrir la version Claude</a></p>` : ""}
+      <p>Pour y passer ce relevé-ci : <b>🗂 Relevé complet</b> (dans 📨 Envoyer), puis dans la version Claude : <b>Importer</b> ce fichier.</p>`);
+  }
+  memoriser(); R.envoi = { etat: "en_attente", demande: Date.now() }; R.maj = Date.now(); R.image = IMG.toDataURL("image/jpeg", 0.85); await bd("ecrire", R);
+  $("panneau").hidden = true;
+  if (!navigator.onLine) { majHorsLigne(); return dire("📴 Pas de réseau : le relevé est <b>en attente</b>. Il partira tout seul dès que le téléphone sera reconnecté."); }
+  dire("📨 J'envoie le relevé à Numérobis…"); traiterFile();
+}
+let ENVOI = null;
+async function boite() { if (!ENVOI) { if (!window.claude) return null; const [assets, db] = await Promise.all([claude.use("assets"), claude.use("db")]); if (!assets || !db) return null; ENVOI = { assets, db }; } return ENVOI; }
+async function traiterFile() {
+  if (!BOITE || !navigator.onLine || traiterFile.occupe) return; traiterFile.occupe = true;
+  try {
+    const liste = ((await bd("tout")) || []).filter(r => r.envoi && r.envoi.etat === "en_attente"); if (!liste.length) return;
+    const b = await boite(); if (!b) { dire("La boîte d'envoi n'est pas disponible ici (version Claude ouverte avec ton compte ?). Le relevé reste en attente."); return; }
+    for (const r of liste) {
+      const fs = await paquet(r), fichiers = [];
+      for (const f of fs) { const a = await b.assets.upload(f); fichiers.push({ nom: f.name, id: a.id, type: f.type || "", octets: a.sizeBytes }); }
+      const cotes = r.lignes.filter(l => l.cote).map(l => l.cote);
+      await b.db.doc("envois/" + r.id).set({ releve: r.id, nom: r.nom, cree: r.cree, envoyeLe: Date.now(), statut: "envoye", fichiers,
+        echelle: !!r.sx, redresse: !!r.redresse, nbLignes: r.lignes.length, cotes, notes: r.notes.map(n => n.texte), origine: r.origine || "photo" });
+      r.envoi = { etat: "envoye", t: Date.now() }; await bd("ecrire", r); if (R && R.id === r.id) R.envoi = r.envoi;
+      dire(`📨 <b>${esc(r.nom)}</b> est dans la boîte d'envoi. Numérobis le range sur le PC et te prévient.`);
+      suivre(r.id);
+    }
+  } catch (e) { dire("L'envoi n'a pas abouti (" + esc(e.code || e.message || e) + "). Le relevé reste en attente : je réessaie au retour du réseau."); }
+  finally { traiterFile.occupe = false; majHorsLigne(); }
+}
+const suivis = {};
+async function suivre(id) {
+  if (suivis[id]) return; const b = await boite(); if (!b) return;
+  suivis[id] = b.db.doc("envois/" + id).onSnapshot(async s => {
+    const d = s.exists ? s.data() : null; if (!d || d.statut !== "recu") return;
+    const r = await bd("lire", id); if (!r || (r.envoi && r.envoi.etat === "recu")) return;
+    r.envoi = { etat: "recu", t: Date.now(), dossier: String(d.dossier || "") }; await bd("ecrire", r); if (R && R.id === id) R.envoi = r.envoi;
+    dire(`✓ Numérobis a bien reçu <b>${esc(r.nom)}</b>${d.dossier ? " (rangé dans " + esc(d.dossier) + ")" : ""}.`);
+    suivis[id](); delete suivis[id];
+  }, () => { delete suivis[id]; });
+}
+async function suivreTout() { if (!BOITE) return; ((await bd("tout")) || []).filter(r => r.envoi && r.envoi.etat === "envoye").forEach(r => suivre(r.id)); }
+let minuteHL = null;
+function majHorsLigne() {
+  // petit bandeau pendant la coupure ; il s'en va tout seul au retour du réseau
+  const hors = !navigator.onLine; clearTimeout(minuteHL);
+  bd("tout").then(l => { const n = (l || []).filter(r => r.envoi && r.envoi.etat === "en_attente").length;
+    $("hlEnvoi").textContent = hors && BOITE && n ? ` ${n} envoi${n > 1 ? "s" : ""} en attente, ${n > 1 ? "ils partiront" : "il partira"} au retour du réseau.` : ""; });
+  if (hors) { $("hlTexte").textContent = "📴 Hors ligne : tout continue de marcher ici."; $("horsligne").hidden = false; }
+  else if (!$("horsligne").hidden) { $("hlTexte").textContent = "📶 Connexion retrouvée."; minuteHL = setTimeout(() => { $("horsligne").hidden = true; }, 2500); }
+}
+addEventListener("offline", majHorsLigne);
+addEventListener("online", () => { majHorsLigne(); traiterFile(); });
+
 // ============================================================ démarrage
-ouvrirBD();
+ouvrirBD().then(() => { majHorsLigne(); if (BOITE) setTimeout(() => { traiterFile(); suivreTout(); }, 1200); });
 taille();
 setTimeout(() => chargerOpenCV().catch(() => {}), 1500);   // préchargé pendant que Charly cadre sa photo
 </script>
