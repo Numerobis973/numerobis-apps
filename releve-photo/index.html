@@ -66,6 +66,15 @@ footer{background:var(--jungle);border-top:1px solid #2c5a44;padding:8px max(10p
 #attente{position:absolute;inset:0;display:grid;place-items:center;background:rgba(10,28,19,.75);z-index:4;font:600 15px Barlow,sans-serif;color:var(--or-clair);text-align:center;padding:20px}
 .spin{width:38px;height:38px;border:4px solid #2c5a44;border-top-color:var(--or);border-radius:50%;animation:t 1s linear infinite;margin:0 auto 12px}
 @keyframes t{to{transform:rotate(1turn)}}
+#pad{position:absolute;right:10px;bottom:62px;display:grid;grid-template-columns:repeat(3,46px);grid-template-rows:repeat(3,46px);gap:4px;z-index:3}
+#pad button{background:rgba(15,42,29,.94);border:1px solid #3a6b52;border-radius:12px;color:var(--or-clair);font-size:18px;touch-action:manipulation}
+#pad button:active{background:var(--or);color:var(--jungle)}
+#pad .info{grid-column:2;grid-row:2;display:grid;place-items:center;font:600 11px "Barlow Semi Condensed",sans-serif;color:var(--or);text-align:center;line-height:1.1}
+#vue3d{position:absolute;inset:0;width:100%;height:100%;background:#0a1c13;z-index:4;touch-action:none}
+#fermer3d{position:absolute;top:10px;right:10px;z-index:5}
+.barre button.micro{background:var(--jungle-3);color:var(--or-clair)}
+.barre button.micro.ecoute{background:#c0392b;color:#fff;animation:pulse 1s infinite}
+@keyframes pulse{50%{transform:scale(1.08)}}
 [hidden]{display:none!important}
 </style>
 
@@ -93,8 +102,17 @@ footer{background:var(--jungle);border-top:1px solid #2c5a44;padding:8px max(10p
       <button id="bQuitter" hidden>✕ Annuler</button>
       <button id="bTracer">✎ Tracer</button>
       <button id="bLignes">≡ Lignes</button>
+      <button id="bFacade" hidden>📐 Façade cotée</button>
+      <button id="b3D" hidden>🧊 3D</button>
       <button id="bExport">⇩ Partager</button>
     </div>
+    <div id="pad" hidden>
+      <span></span><button data-d="0,-1" aria-label="Monter">▲</button><span></span>
+      <button data-d="-1,0" aria-label="Gauche">◀</button><div class="info" id="padInfo">coin 1<br>1 px</div><button data-d="1,0" aria-label="Droite">▶</button>
+      <span></span><button data-d="0,1" aria-label="Descendre">▼</button><span></span>
+    </div>
+    <canvas id="vue3d" hidden></canvas>
+    <button class="btn or" id="fermer3d" hidden>✕ Fermer la 3D</button>
     <div id="fiche" hidden>
       <div class="ligne1"><span class="etiq" id="fEtiq">Ligne choisie</span><span class="mesure" id="fMesure">—</span></div>
       <div class="saisie"><input id="fCote" inputmode="decimal" placeholder="Cote réelle (ex. 2,15 m ou 60 cm)" enterkeyhint="done"><button class="btn or" id="fOk">OK</button></div>
@@ -108,6 +126,7 @@ footer{background:var(--jungle);border-top:1px solid #2c5a44;padding:8px max(10p
     <div id="bulle">Bonjour Charly. <b>Prends une photo</b> pour commencer, ou écris « aide ».</div>
     <form class="barre" id="formCmd" autocomplete="off">
       <input id="cmd" placeholder="Écris ou dicte : « cote 2,15 », « note… »" enterkeyhint="send">
+      <button type="button" class="micro" id="bMicro" aria-label="Dicter">🎤</button>
       <button aria-label="Envoyer"><svg width="22" height="22" viewBox="0 0 24 24" fill="currentColor"><path d="M3 20l18-8L3 4v6l12 2-12 2z"/></svg></button>
     </form>
   </footer>
@@ -124,7 +143,8 @@ let R = null;                 // relevé en cours
 let IMG = null;               // canvas de l'image courante (originale ou redressée)
 let vueT = { s: 1, x: 0, y: 0 }; // image -> écran : X = x + s*u
 let sel = -1, mode = "lignes", poignees = null, trace = null, historique = [];
-let fin = false, aimant = true, cible = null, accroche = null;   // viseur de précision : mode fin, aimant, point visé
+let fin = false, aimant = false, cible = null, accroche = null;   // l'aimant est coupé au départ (demande de Charly)
+let vue = "photo", actif = 0, actifBout = 0, minuteLoupe = null;   // viseur de précision : mode fin, aimant, point visé
 const C = $("vue"), ctx = C.getContext("2d");
 
 // ============================================================ OpenCV (chargé en arrière-plan)
@@ -220,32 +240,46 @@ function montrerTravail() { $("accueil").hidden = true; $("outils").hidden = fal
 
 // ============================================================ reconnaissance des lignes
 async function detecter() {
-  attente("Je reconnais les lignes…");
+  attente("Je décalque les lignes de la photo…");
   try { await chargerOpenCV(); } catch (e) { attente(""); dire("L'outil de reconnaissance n'est pas chargé (<b>opencv.js</b>). Ouvre l'appli une fois avec Internet pour qu'elle le garde. Tu peux tracer les lignes à la main avec <b>✎ Tracer</b>."); return; }
   await new Promise(r => setTimeout(r, 30));
-  const cv = window.cv; const src = cv.imread(IMG), g = new cv.Mat(), b = new cv.Mat(), lignes = new cv.Mat();
+  const cv = window.cv, W = IMG.width, H = IMG.height, m = Math.max(W, H), sens = R.sensibilite || 1;
+  const src = cv.imread(IMG), g = new cv.Mat(), e = new cv.Mat(), gx = new cv.Mat(), gy = new cv.Mat(), mag = new cv.Mat(), cs = new cv.MatVector(), hier = new cv.Mat();
   try {
-    cv.cvtColor(src, g, cv.COLOR_RGBA2GRAY); cv.GaussianBlur(g, g, new cv.Size(5, 5), 0);
-    const sens = R.sensibilite || 1, m = Math.max(IMG.width, IMG.height);
-    cv.Canny(g, b, 40 / sens, 120 / sens);
-    cv.HoughLinesP(b, lignes, 1, Math.PI / 180, Math.round(50 / sens), Math.round(m * 0.035 / sens), Math.round(m * 0.008));
-    let seg = [];
-    for (let i = 0; i < lignes.rows; i++) { const p = lignes.data32S.subarray(i * 4, i * 4 + 4); seg.push({ x1: p[0], y1: p[1], x2: p[2], y2: p[3] }); }
-    seg = fusionner(seg, m).sort((a, c) => long(c) - long(a)).slice(0, 160);
+    // 1) contours nets de la photo (seuils réglés d'après la photo elle-même)
+    cv.cvtColor(src, g, cv.COLOR_RGBA2GRAY); cv.GaussianBlur(g, g, new cv.Size(3, 3), 0);
+    cv.Sobel(g, gx, cv.CV_32F, 1, 0); cv.Sobel(g, gy, cv.CV_32F, 0, 1); cv.magnitude(gx, gy, mag);
+    const d = mag.data32F, ech = []; for (let i = 0; i < d.length; i += 7) ech.push(d[i]); ech.sort((x, y) => x - y);
+    const hi = Math.max(30, ech[Math.floor(ech.length * Math.max(0.5, 1 - 0.10 * sens))] * 0.5), lo = hi * 0.4;
+    cv.Canny(g, e, lo, hi, 3, true);
+    // 2) on suit chaque contour et on le découpe en traits droits : une ligne n'existe que si elle suit un vrai bord de la photo
+    cv.findContours(e, cs, hier, cv.RETR_LIST, cv.CHAIN_APPROX_NONE);
+    const minL = Math.max(8, m * 0.013 / Math.sqrt(sens)), eps = Math.max(1, m * 0.0009); let seg = [];
+    for (let i = 0; i < cs.size(); i++) {
+      const c = cs.get(i);
+      if (c.rows >= minL) {
+        const ap = new cv.Mat(); cv.approxPolyDP(c, ap, eps, false); const q = ap.data32S;
+        for (let k = 0; k + 3 < q.length; k += 2) { const t = { x1: q[k], y1: q[k + 1], x2: q[k + 2], y2: q[k + 3] }; if (long(t) >= minL) seg.push(t); }
+        ap.delete();
+      }
+      c.delete();
+    }
+    // 3) les morceaux d'une même ligne sont réunis ; les traits trop courts sont écartés
+    seg = fusionner(seg, m).filter(l => long(l) >= minL * 1.2).sort((x, y) => long(y) - long(x)).slice(0, Math.round(500 * sens));
     memoriser();
     const gardees = R.lignes.filter(l => l.cote || l.main);       // on garde les lignes cotées ou tracées à la main
-    R.lignes = gardees.concat(seg.map(s => ({ ...s })));
+    R.lignes = gardees.concat(seg.map(t => ({ ...t })));
     sel = -1; dessiner();
-    dire(`J'ai trouvé <b>${seg.length} lignes</b>. Touche celle dont tu connais la longueur et donne sa cote réelle. ` +
-         (R.redresse ? "" : "Pour une façade prise de biais, appuie d'abord sur <b>⟂ Redresser</b>."));
-  } catch (e) { dire("La reconnaissance a échoué : " + e.message); }
-  finally { src.delete(); g.delete(); b.delete(); lignes.delete(); attente(""); }
+    dire(`J'ai décalqué <b>${seg.length} lignes</b>. Touche celle dont tu connais la longueur et donne sa cote. ` +
+         (R.redresse ? "" : "Façade prise de biais ? Commence par <b>⟂ Redresser</b>. ") + "Trop ou pas assez de lignes : <b>≡ Lignes</b>.");
+  } catch (err) { dire("Le décalque a échoué : " + err.message); }
+  finally { [src, g, e, gx, gy, mag, hier].forEach(x => x.delete()); cs.delete(); attente(""); }
 }
 const long = l => Math.hypot(l.x2 - l.x1, l.y2 - l.y1);
 const angle = l => { let a = Math.atan2(l.y2 - l.y1, l.x2 - l.x1); if (a < 0) a += Math.PI; if (a >= Math.PI) a -= Math.PI; return a; };
 function fusionner(seg, m) {
   // regroupe les morceaux d'une même ligne (même direction, même droite, bouts proches)
-  const tolA = 2.5 * Math.PI / 180, tolD = Math.max(3, m * 0.004), tolG = m * 0.02;
+  const tolA = 2 * Math.PI / 180, tolD = Math.max(2, m * 0.0025), tolG = m * 0.008;
   seg.sort((a, b) => long(b) - long(a)); const out = [];
   for (const s of seg) {
     let pris = false;
@@ -349,7 +383,7 @@ async function validerRedressement() {
   const cotees = R.lignes.filter(l => l.cote || l.main).map(l => { const a = tr(l.x1, l.y1), b = tr(l.x2, l.y2); return { ...l, x1: a.x, y1: a.y, x2: b.x, y2: b.y }; });
   const nouv = document.createElement("canvas"); nouv.width = W; nouv.height = H; cv.imshow(nouv, dst);
   s.delete(); d.delete(); M.delete(); src.delete(); dst.delete();
-  IMG = nouv; R.redresse = true; R.lignes = cotees; mode = "lignes"; poignees = null; sel = -1;
+  IMG = nouv; R.redresse = true; R.lignes = cotees; mode = "lignes"; poignees = null; sel = -1; cible = null; clearTimeout(minuteLoupe);
   majEchelle(); cadrer(); majOutils(); dessiner(); attente("");
   await detecter();
   dire("Façade remise de face. " + (R.sx ? "Les cotes sont conservées." : "Touche une ligne et donne sa cote. Avec <b>deux cotes</b> (une horizontale, une verticale), la mise à l'échelle est exacte dans les deux sens."));
@@ -363,26 +397,42 @@ const ecran = (u, v) => ({ X: vueT.x + vueT.s * u, Y: vueT.y + vueT.s * v });
 const image = (X, Y) => ({ x: (X - vueT.x) / vueT.s, y: (Y - vueT.y) / vueT.s });
 function dessiner() {
   const r = C.getBoundingClientRect(); ctx.clearRect(0, 0, r.width, r.height); if (!IMG) return;
-  ctx.drawImage(IMG, vueT.x, vueT.y, IMG.width * vueT.s, IMG.height * vueT.s);
-  if (mode === "redresser" && poignees) { ctx.fillStyle = "rgba(10,28,19,.35)"; ctx.fillRect(vueT.x, vueT.y, IMG.width * vueT.s, IMG.height * vueT.s); }
-  R.lignes.forEach((l, i) => {
+  const plan = vue === "facade";                                 // vue « façade cotée » : dessin au trait sur fond blanc
+  if (plan) { ctx.fillStyle = "#ffffff"; ctx.fillRect(vueT.x, vueT.y, IMG.width * vueT.s, IMG.height * vueT.s); }
+  else {
+    ctx.drawImage(IMG, vueT.x, vueT.y, IMG.width * vueT.s, IMG.height * vueT.s);
+    // calque presque transparent par-dessus la photo, comme un papier calque
+    ctx.fillStyle = mode === "redresser" ? "rgba(10,28,19,.30)" : "rgba(255,255,255," + (R.voile ?? 0.45) + ")"; ctx.fillRect(vueT.x, vueT.y, IMG.width * vueT.s, IMG.height * vueT.s);
+  }
+  ctx.lineCap = "round";
+  const epais = Math.min(1.1, Math.max(0.55, vueT.s * 2.2));        // traits fins, encore plus fins quand la photo est vue en entier
+  const etiquettes = [];                                            // pour ne pas superposer les cotes
+  R.lignes.forEach((l, i) => { if (i === sel) return;               // traits fins noirs ; la ligne choisie est dessinée à la fin, en doré
+    const a = ecran(l.x1, l.y1), b = ecran(l.x2, l.y2);
+    ctx.strokeStyle = l.cote ? "#1d6b45" : "#14110e"; ctx.lineWidth = l.cote ? 1.8 : epais; if (l.main) ctx.setLineDash([5, 3]);
+    ctx.beginPath(); ctx.moveTo(a.X, a.Y); ctx.lineTo(b.X, b.Y); ctx.stroke(); ctx.setLineDash([]); });
+  if (sel >= 0 && R.lignes[sel]) { const l = R.lignes[sel], a = ecran(l.x1, l.y1), b = ecran(l.x2, l.y2);
+    ctx.strokeStyle = "rgba(20,17,14,.55)"; ctx.lineWidth = 5; ctx.beginPath(); ctx.moveTo(a.X, a.Y); ctx.lineTo(b.X, b.Y); ctx.stroke();
+    ctx.strokeStyle = "#e8b44c"; ctx.lineWidth = 3; ctx.beginPath(); ctx.moveTo(a.X, a.Y); ctx.lineTo(b.X, b.Y); ctx.stroke(); }
+  const ordreEtiq = R.lignes.map((l, i) => i).sort((i, j) => ((j === sel) - (i === sel)) || (!!R.lignes[j].cote - !!R.lignes[i].cote) || (long(R.lignes[j]) - long(R.lignes[i])));
+  ordreEtiq.forEach(i => { const l = R.lignes[i];
     const a = ecran(l.x1, l.y1), b = ecran(l.x2, l.y2), choisie = i === sel;
-    ctx.lineCap = "round";
-    ctx.strokeStyle = "rgba(0,0,0,.55)"; ctx.lineWidth = choisie ? 7 : 4.5; ctx.beginPath(); ctx.moveTo(a.X, a.Y); ctx.lineTo(b.X, b.Y); ctx.stroke();
-    ctx.strokeStyle = choisie ? "#ffffff" : l.cote ? "#7fc79a" : l.main ? "#f6dc96" : "#e8b44c"; ctx.lineWidth = choisie ? 4 : 2;
-    ctx.beginPath(); ctx.moveTo(a.X, a.Y); ctx.lineTo(b.X, b.Y); ctx.stroke();
     const mm = metres(l);
-    if (mm != null && (choisie || l.cote || long(l) * vueT.s > 70)) {
+    if (mm != null && (choisie || l.cote || (plan && mm >= (R.coteMin || 0.3) && long(l) * vueT.s > 46))) {
       const t = (l.cote ? "✓ " : (R.redresse ? "" : "≈ ")) + fmt(mm), cx = (a.X + b.X) / 2, cy = (a.Y + b.Y) / 2;
       ctx.font = "600 12px Barlow, sans-serif"; const w = ctx.measureText(t).width + 10;
-      ctx.fillStyle = l.cote ? "rgba(20,70,45,.92)" : "rgba(15,42,29,.85)"; ctx.fillRect(cx - w / 2, cy - 9, w, 18);
-      ctx.fillStyle = l.cote ? "#c9f0d6" : "#f6dc96"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(t, cx, cy + 1);
+      if (plan && !choisie && !l.cote) { ctx.font = "500 10px Barlow, sans-serif"; const w2 = ctx.measureText(t).width + 4;
+        if (etiquettes.some(q => Math.abs(q.x - cx) < (q.w + w2) / 2 + 2 && Math.abs(q.y - cy) < 13)) return; etiquettes.push({ x: cx, y: cy, w: w2 });
+        ctx.fillStyle = "rgba(255,255,255,.9)"; ctx.fillRect(cx - w2 / 2, cy - 6, w2, 12); ctx.fillStyle = "#14110e"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(t, cx, cy); return; }
+      etiquettes.push({ x: cx, y: cy, w });
+      ctx.fillStyle = choisie ? "rgba(15,42,29,.95)" : "rgba(20,70,45,.92)"; ctx.fillRect(cx - w / 2, cy - 9, w, 18);
+      ctx.fillStyle = choisie ? "#f6dc96" : "#c9f0d6"; ctx.textAlign = "center"; ctx.textBaseline = "middle"; ctx.fillText(t, cx, cy + 1);
     }
   });
   if (trace) { const a = ecran(trace.x1, trace.y1), b = ecran(trace.x2, trace.y2); ctx.strokeStyle = "#ffffff"; ctx.setLineDash([6, 5]); ctx.lineWidth = 2.5; ctx.beginPath(); ctx.moveTo(a.X, a.Y); ctx.lineTo(b.X, b.Y); ctx.stroke(); ctx.setLineDash([]); }
   if (sel >= 0 && R.lignes[sel] && mode === "lignes") {          // extrémités réglables de la ligne choisie
     const l = R.lignes[sel];
-    [[l.x1, l.y1], [l.x2, l.y2]].forEach(([u, v]) => { const e = ecran(u, v); ctx.strokeStyle = "#ffffff"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(e.X, e.Y, 11, 0, 7); ctx.stroke(); ctx.fillStyle = "rgba(255,255,255,.25)"; ctx.fill(); });
+    [[l.x1, l.y1], [l.x2, l.y2]].forEach(([u, v], k) => { const e = ecran(u, v); ctx.strokeStyle = actifBout === k + 1 ? "#e8b44c" : "#14110e"; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(e.X, e.Y, 11, 0, 7); ctx.fillStyle = "rgba(255,255,255,.55)"; ctx.fill(); ctx.stroke(); });
   }
   if (mode === "redresser" && poignees) {
     ctx.strokeStyle = "#e8b44c"; ctx.lineWidth = 2.5; ctx.beginPath();
@@ -396,17 +446,19 @@ function dessiner() {
 }
 function pointCible() {
   if (!cible) return null;
-  if (cible.type === "poignee") return poignees[cible.i];
+  if (cible.type === "poignee") return poignees ? poignees[cible.i] : null;
+  if (cible.type === "bout" && !R.lignes[cible.ligne]) return null;
   const l = cible.type === "trace" ? trace : R.lignes[cible.ligne];
   return cible.bout === 1 ? { x: l.x1, y: l.y1 } : { x: l.x2, y: l.y2 };
 }
 function loupe(P) {
   // loupe de visée : agrandit la zone autour du point visé, réticule au centre, placée loin du doigt
   if (!P) return; const r = C.getBoundingClientRect(), R0 = 68, e = ecran(P.x, P.y);
-  const cx = e.X < r.width / 2 ? r.width - R0 - 12 : R0 + 12, cy = R0 + 12, z = Math.max(vueT.s * 5, 3);
+  const cx = e.X < r.width / 2 ? r.width - R0 - 12 : R0 + 12, cy = R0 + 12, z = Math.max(vueT.s * 8, 4);
   ctx.save(); ctx.beginPath(); ctx.arc(cx, cy, R0, 0, 7); ctx.fillStyle = "#0a1c13"; ctx.fill(); ctx.clip();
   ctx.imageSmoothingEnabled = false; ctx.drawImage(IMG, cx - P.x * z, cy - P.y * z, IMG.width * z, IMG.height * z); ctx.imageSmoothingEnabled = true;
-  ctx.strokeStyle = "rgba(232,180,76,.9)"; ctx.lineWidth = 1.5;
+  ctx.fillStyle = "rgba(255,255,255,.25)"; ctx.fillRect(cx - R0, cy - R0, 2 * R0, 2 * R0);
+  ctx.strokeStyle = "rgba(20,17,14,.85)"; ctx.lineWidth = 1.2;
   R.lignes.forEach(l => { ctx.beginPath(); ctx.moveTo(cx + (l.x1 - P.x) * z, cy + (l.y1 - P.y) * z); ctx.lineTo(cx + (l.x2 - P.x) * z, cy + (l.y2 - P.y) * z); ctx.stroke(); });
   if (mode === "redresser" && poignees) { ctx.strokeStyle = "rgba(255,255,255,.8)"; ctx.beginPath(); poignees.forEach((q, i) => { const X = cx + (q.x - P.x) * z, Y = cy + (q.y - P.y) * z; i ? ctx.lineTo(X, Y) : ctx.moveTo(X, Y); }); ctx.closePath(); ctx.stroke(); }
   ctx.restore();
@@ -450,11 +502,11 @@ C.addEventListener("pointerdown", e => {
   const viseur = (c, depart) => { cible = c; geste = { type: "viseur", X: e.offsetX, Y: e.offsetY, P: { ...depart }, aimant: aimant ? pointsAimant() : null }; dessiner(); };
   if (mode === "redresser" && poignees) {
     // on attrape le coin le plus proche (zone large) ; il bouge AVEC le doigt mais décalé : le doigt ne le cache pas
-    const i = proche(poignees, 70); if (i >= 0) return viseur({ type: "poignee", i }, poignees[i]);
+    const i = proche(poignees, 70); if (i >= 0) { actif = i; majPad(); return viseur({ type: "poignee", i }, poignees[i]); }
   }
   if (mode === "lignes" && sel >= 0 && R.lignes[sel]) {
     const l = R.lignes[sel], b = proche([{ x: l.x1, y: l.y1 }, { x: l.x2, y: l.y2 }], 36);
-    if (b >= 0) { memoriser(); return viseur({ type: "bout", ligne: sel, bout: b + 1 }, b ? { x: l.x2, y: l.y2 } : { x: l.x1, y: l.y1 }); }
+    if (b >= 0) { memoriser(); actifBout = b + 1; majPad(); return viseur({ type: "bout", ligne: sel, bout: b + 1 }, b ? { x: l.x2, y: l.y2 } : { x: l.x1, y: l.y1 }); }
   }
   if (mode === "tracer") { trace = { x1: P.x, y1: P.y, x2: P.x, y2: P.y }; return viseur({ type: "trace", bout: 2 }, P); }
   geste = { type: "tape", X: e.offsetX, Y: e.offsetY, t: { ...vueT }, bouge: false };
@@ -494,7 +546,7 @@ C.addEventListener("pointerup", finDoigt); C.addEventListener("pointercancel", f
 C.addEventListener("wheel", e => { e.preventDefault(); const k = Math.exp(-e.deltaY * 0.0015), s = Math.min(Math.max(vueT.s * k, .05), 20); vueT = { s, x: e.offsetX - (e.offsetX - vueT.x) * s / vueT.s, y: e.offsetY - (e.offsetY - vueT.y) * s / vueT.s }; dessiner(); }, { passive: false });
 
 function choisir(X, Y) {
-  if (mode === "redresser") return;
+  if (mode === "redresser") { const i = poignees.findIndex(p => { const s = ecran(p.x, p.y); return Math.hypot(s.X - X, s.Y - Y) < 40; }); if (i >= 0) { actif = i; majPad(); dire(`Coin ${i + 1} choisi : règle-le au pixel près avec les <b>flèches</b>.`); } return; }
   let best = -1, bd_ = 24;
   R.lignes.forEach((l, i) => {
     const a = ecran(l.x1, l.y1), b = ecran(l.x2, l.y2), dx = b.X - a.X, dy = b.Y - a.Y, L2 = dx * dx + dy * dy || 1;
@@ -508,13 +560,14 @@ function choisir(X, Y) {
 // ============================================================ fiche de la ligne choisie
 function ouvrirFiche() {
   const l = R.lignes[sel]; if (!l) return fermerFiche();
+  if (!actifBout) actifBout = 2; setTimeout(majPad, 0);
   $("fiche").hidden = false; $("outils").hidden = true;
   const deg = Math.round(angle(l) * 180 / Math.PI), dir = (deg < 15 || deg > 165) ? "horizontale" : (deg > 75 && deg < 105) ? "verticale" : "en biais";
   $("fEtiq").textContent = "Ligne " + dir + (l.cote ? " · cotée" : "");
   $("fMesure").textContent = l.cote ? fmt(l.cote) : R.sx ? (R.redresse ? "" : "≈ ") + fmt(metres(l)) : "à coter";
   $("fCote").value = l.cote ? String(l.cote).replace(".", ",") : "";
 }
-function fermerFiche() { $("fiche").hidden = true; $("outils").hidden = !R; sel = -1; dessiner(); }
+function fermerFiche() { $("fiche").hidden = true; $("outils").hidden = !R; sel = -1; actifBout = 0; majPad(); dessiner(); }
 function poserCote(v) {
   if (sel < 0) return dire("Touche d'abord une ligne sur la photo.");
   const c = lireCote(v); if (c == null) return dire("Je n'ai pas compris la cote. Exemple : <b>2,15</b> (mètres) ou <b>60 cm</b>.");
@@ -523,7 +576,8 @@ function poserCote(v) {
   dire(`Cote de <b>${fmt(c)}</b> posée. ` + (R.aniso ? "Échelle exacte en largeur et en hauteur (2 cotes)." :
        n === 1 ? (R.redresse ? "Toutes les lignes sont à l'échelle. Ajoute une cote dans l'autre sens pour plus de justesse." : "Mesures approximatives (photo de biais) : <b>⟂ Redresser</b> pour une vraie vue de face.") :
        "Échelle moyenne de " + n + " cotes."));
-  ouvrirFiche(); dessiner(); sauver();
+  ouvrirFiche(); majOutils(); dessiner(); sauver();
+  if (n === 1) setTimeout(() => dire($("bulle").innerHTML + " Regarde le résultat : <b>📐 Façade cotée</b> ou <b>🧊 3D</b> (après <b>Fermer</b>)."), 30);
 }
 $("fOk").onclick = () => poserCote($("fCote").value);
 $("fCote").addEventListener("keydown", e => { if (e.key === "Enter") { e.preventDefault(); poserCote($("fCote").value); } });
@@ -539,14 +593,42 @@ function majOutils() {
   $("bFin").hidden = $("bAimant").hidden = !vise; $("bQuitter").hidden = mode !== "redresser";
   $("bLignes").hidden = $("bExport").hidden = vise; $("bTracer").hidden = mode === "redresser";
   $("bFin").classList.toggle("actif", fin); $("bAimant").classList.toggle("actif", aimant);
+  $("bFacade").hidden = $("b3D").hidden = !(R && R.sx) || vise;
+  $("bFacade").textContent = vue === "facade" ? "🖼 Photo" : "📐 Façade cotée";
+  majPad();
 }
+function majPad() {
+  // pavé de flèches : déplace le coin (ou le bout de ligne) actif d'un pixel à chaque appui
+  const enCoin = mode === "redresser" && poignees, enBout = mode === "lignes" && sel >= 0 && actifBout && !$("fiche").hidden;
+  $("pad").hidden = !(enCoin || enBout);
+  if ($("pad").hidden) return;
+  $("pad").style.bottom = enBout ? ($("fiche").offsetHeight + 74) + "px" : "62px";
+  $("padInfo").innerHTML = (enCoin ? "coin " + (actif + 1) : "bout " + actifBout) + "<br>1 px";
+}
+function pousser(dx, dy) {
+  let P;
+  if (mode === "redresser" && poignees) { P = poignees[actif]; P.x += dx; P.y += dy; cible = { type: "poignee", i: actif }; }
+  else if (sel >= 0 && actifBout) { const l = R.lignes[sel]; if (actifBout === 1) { l.x1 += dx; l.y1 += dy; } else { l.x2 += dx; l.y2 += dy; } cible = { type: "bout", ligne: sel, bout: actifBout }; majEchelle(); ouvrirFiche(); }
+  else return;
+  dessiner(); clearTimeout(minuteLoupe); minuteLoupe = setTimeout(() => { cible = null; dessiner(); if (sel >= 0) sauver(); }, 1300);
+}
+document.querySelectorAll("#pad button").forEach(b => {
+  let rep = null; const [dx, dy] = b.dataset.d.split(",").map(Number);
+  const go = e => { e.preventDefault(); pousser(dx, dy); let n = 0; rep = setInterval(() => { n++; pousser(dx * (n > 15 ? 3 : 1), dy * (n > 15 ? 3 : 1)); }, 110); };
+  const stop = () => { clearInterval(rep); rep = null; };
+  b.addEventListener("pointerdown", go); b.addEventListener("pointerup", stop); b.addEventListener("pointerleave", stop); b.addEventListener("pointercancel", stop);
+});
+$("bFacade").onclick = () => { vue = vue === "facade" ? "photo" : "facade"; majOutils(); dessiner();
+  dire(vue === "facade" ? "<b>Façade cotée</b> : le dessin au trait, à l'échelle, avec les cotes de toutes les lignes. <b>🖼 Photo</b> pour revenir." : "Retour à la photo."); };
+$("b3D").onclick = () => ouvrir3D();
+$("fermer3d").onclick = () => { $("vue3d").hidden = $("fermer3d").hidden = true; if (window._arret3d) window._arret3d(); };
 $("bFin").onclick = () => { fin = !fin; majOutils(); dire(fin ? "<b>Mode fin</b> : le point bouge 4 fois moins vite que ton doigt, pour viser au pixel près." : "Mode fin coupé."); };
 $("bAimant").onclick = () => { aimant = !aimant; majOutils(); dire(aimant ? "<b>Aimant</b> : le point se colle aux coins et aux croisements des lignes reconnues (cercle vert)." : "Aimant coupé : le point va exactement où tu le mènes."); };
-$("bQuitter").onclick = () => { mode = "lignes"; poignees = null; majOutils(); dessiner(); dire("Redressement annulé."); };
+$("bQuitter").onclick = () => { mode = "lignes"; poignees = null; cible = null; clearTimeout(minuteLoupe); majOutils(); dessiner(); dire("Redressement annulé."); };
 $("bRedresser").onclick = () => {
   if (mode === "redresser") return validerRedressement();
-  fermerFiche(); mode = "redresser"; poignees = quadAuto(); majOutils(); dessiner();
-  dire("Mets les <b>4 viseurs</b> sur les coins d'un rectangle de la façade (1 haut gauche, 2 haut droite, 3 bas droite, 4 bas gauche). Pose le doigt <b>à côté</b> d'un viseur et glisse : il suit sans être caché, la <b>loupe</b> montre le détail. Zoome à deux doigts, <b>🎯 Fin</b> pour viser au pixel. Puis <b>✓ Valider</b>.");
+  fermerFiche(); mode = "redresser"; poignees = quadAuto(); actif = 0; vue = "photo"; majOutils(); dessiner();
+  dire("Mets les <b>4 viseurs</b> sur les coins d'un rectangle de la façade (1 haut gauche, 2 haut droite, 3 bas droite, 4 bas gauche) : pose le doigt <b>à côté</b> d'un viseur et glisse, la <b>loupe</b> montre le détail. Pour finir au pixel près : touche un viseur, puis les <b>flèches</b>. Puis <b>✓ Valider</b>.");
 };
 $("bTracer").onclick = () => { fermerFiche(); mode = mode === "tracer" ? "lignes" : "tracer"; majOutils(); dessiner(); dire(mode === "tracer" ? "Pose le doigt au début de la ligne et glisse jusqu'à la fin, en suivant la <b>loupe</b>. Tu pourras ensuite ajuster chaque bout." : "Mode choix des lignes."); };
 $("bLignes").onclick = () => panneauLignes();
@@ -554,6 +636,52 @@ $("bExport").onclick = () => panneauExport();
 $("bMes").onclick = $("bMenu").onclick = () => panneauMenu();
 $("mVideo").onclick = () => dire("Le <b>relevé vidéo</b> arrive à l'étape 3 : on le prépare après tes essais du mode photo.");
 $("mPhoto").onclick = () => dire("Mode photo.");
+
+// ============================================================ vue 3D : la façade en volume, à faire tourner au doigt
+function chargerThree() { return new Promise((ok, ko) => { if (window.THREE) return ok(); const s = document.createElement("script"); s.src = "three.min.js"; s.onload = ok; s.onerror = () => ko(new Error("three.min.js introuvable")); document.head.appendChild(s); }); }
+async function ouvrir3D() {
+  if (!R.sx) return dire("Pose d'abord une cote.");
+  try { await chargerThree(); } catch (e) { return dire("La 3D n'est pas chargée : ouvre l'appli une fois avec Internet."); }
+  const T = window.THREE, cv3 = $("vue3d"); cv3.hidden = $("fermer3d").hidden = false; fermerFiche(); $("fiche").hidden = true;
+  const r = cv3.getBoundingClientRect(), ren = new T.WebGLRenderer({ canvas: cv3, antialias: true }); ren.setPixelRatio(devicePixelRatio || 1); ren.setSize(r.width, r.height, false);
+  const sc = new T.Scene(); sc.background = new T.Color(0x0a1c13);
+  const Wm = IMG.width * R.sx, Hm = IMG.height * R.sy, cam = new T.PerspectiveCamera(45, r.width / r.height, 0.05, 500);
+  const tex = new T.CanvasTexture(IMG); const plan = new T.Mesh(new T.PlaneGeometry(Wm, Hm), new T.MeshBasicMaterial({ map: tex, side: T.DoubleSide }));
+  sc.add(plan);
+  const pts = []; R.lignes.forEach(l => pts.push(l.x1 * R.sx - Wm / 2, Hm / 2 - l.y1 * R.sy, 0.01, l.x2 * R.sx - Wm / 2, Hm / 2 - l.y2 * R.sy, 0.01));
+  const geo = new T.BufferGeometry(); geo.setAttribute("position", new T.Float32BufferAttribute(pts, 3));
+  sc.add(new T.LineSegments(geo, new T.LineBasicMaterial({ color: 0x14110e })));
+  const sol = new T.GridHelper(Math.max(Wm, Hm) * 3, 30, 0xb8862d, 0x2c5a44); sol.position.y = -Hm / 2; sc.add(sol);
+  let az = -0.55, el = 0.18, dist = Math.max(Wm, Hm) * 1.6, auto = true;
+  const placer = () => { cam.position.set(dist * Math.sin(az) * Math.cos(el), dist * Math.sin(el), dist * Math.cos(az) * Math.cos(el)); cam.lookAt(0, 0, 0); };
+  const pts2 = new Map(); let d0 = 0;
+  cv3.onpointerdown = e => { auto = false; cv3.setPointerCapture(e.pointerId); pts2.set(e.pointerId, [e.clientX, e.clientY]); if (pts2.size === 2) { const [a, b] = [...pts2.values()]; d0 = Math.hypot(a[0] - b[0], a[1] - b[1]); } };
+  cv3.onpointermove = e => { if (!pts2.has(e.pointerId)) return; const p0 = pts2.get(e.pointerId); pts2.set(e.pointerId, [e.clientX, e.clientY]);
+    if (pts2.size === 2) { const [a, b] = [...pts2.values()], d = Math.hypot(a[0] - b[0], a[1] - b[1]); if (d0) dist = Math.min(Math.max(dist * d0 / d, Math.max(Wm, Hm) * 0.3), Math.max(Wm, Hm) * 6); d0 = d; }
+    else { az -= (e.clientX - p0[0]) * 0.008; el = Math.min(Math.max(el + (e.clientY - p0[1]) * 0.006, -0.2), 1.3); } };
+  cv3.onpointerup = cv3.onpointercancel = e => { pts2.delete(e.pointerId); d0 = 0; };
+  let vivant = true; window._arret3d = () => { vivant = false; ren.dispose(); };
+  const boucle = () => { if (!vivant) return; if (auto) az += 0.004; placer(); ren.render(sc, cam); requestAnimationFrame(boucle); }; boucle();
+  dire(`<b>Façade en 3D</b> : ${fmt(Wm)} × ${fmt(Hm)}. Fais-la tourner au doigt, pince pour zoomer.`);
+}
+
+// ============================================================ dictée (micro)
+(function () {
+  const SR = window.SpeechRecognition || window.webkitSpeechRecognition; const b = $("bMicro");
+  if (!SR) { b.onclick = () => dire("La dictée n'est pas disponible dans ce navigateur : utilise le <b>micro du clavier</b>."); return; }
+  let rec = null;
+  b.onclick = () => {
+    if (rec) { rec.stop(); return; }
+    if (!navigator.onLine) dire("Hors ligne : la dictée de Chrome peut ne pas marcher. Le <b>micro du clavier</b> reste possible.");
+    rec = new SR(); rec.lang = "fr-FR"; rec.interimResults = true; rec.continuous = false;
+    try { rec.processLocally = true; } catch (e) {}                 // reconnaissance sur le téléphone quand Chrome le permet
+    b.classList.add("ecoute"); dire("Je t'écoute…");
+    rec.onresult = e => { const t = [...e.results].map(r => r[0].transcript).join(" "); $("cmd").value = t; if (e.results[e.results.length - 1].isFinal) { $("cmd").value = ""; executer(t.trim()); } };
+    rec.onerror = e => dire(e.error === "not-allowed" ? "Le micro est refusé : autorise-le dans Chrome (cadenas ▸ Micro)." : e.error === "network" ? "Pas de réseau pour la dictée : utilise le micro du clavier." : "Je n'ai rien entendu.");
+    rec.onend = () => { b.classList.remove("ecoute"); rec = null; };
+    try { rec.start(); } catch (e) { b.classList.remove("ecoute"); rec = null; }
+  };
+})();
 
 // ============================================================ panneaux
 function panneau(html) { $("panneauContenu").innerHTML = html; $("panneau").hidden = false; }

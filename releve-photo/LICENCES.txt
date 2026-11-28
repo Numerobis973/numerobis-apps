@@ -1,1 +1,1 @@
-OpenCV.js 4.10 : licence Apache 2.0 (https://opencv.org/license/). Polices Marcellus et Barlow : SIL Open Font License.
+OpenCV.js 4.10 : licence Apache 2.0 (https://opencv.org/license/). three.js : licence MIT. Polices Marcellus et Barlow : SIL Open Font License.
